@@ -201,6 +201,39 @@ describe("ContextBuilder.build()", () => {
     assert.doesNotMatch(result.injectionText, /default learning content/);
   });
 
+  it("hardening=false 에서 recall 경로의 learning_extraction 파편은 core memory에 유지된다", async () => {
+    recallMock = mock.fn(async (params) => {
+      if (params.topic === "session_reflect") {
+        return { fragments: [] };
+      }
+      if (params.type === "fact") {
+        return {
+          fragments: [
+            frag("fact-learning-1", "fact", "legacy learning fact", { source: "learning_extraction" }),
+          ],
+        };
+      }
+      return { fragments: [] };
+    });
+    builder = new ContextBuilder({
+      recall : recallMock,
+      store  : storeMock,
+      index  : indexMock,
+      getPool: () => null,
+    });
+
+    const flatResult = await builder.build({ types: ["fact"] });
+    assert.ok(flatResult.fragments.some(f => f.id === "fact-learning-1"));
+    assert.match(flatResult.injectionText, /\[CORE MEMORY\]/);
+    assert.match(flatResult.injectionText, /\[FACT\]/);
+    assert.match(flatResult.injectionText, /legacy learning fact/);
+    assert.doesNotMatch(flatResult.injectionText, /\[LEARNING MEMORY\]/);
+
+    const structuredResult = await builder.build({ types: ["fact"], structured: true });
+    assert.equal(structuredResult.core.fact.length, 1);
+    assert.equal(structuredResult.core.fact[0].id, "fact-learning-1");
+  });
+
   it("structured=true 시 learning 파편이 rankedInjection에는 포함되고 core 중복 분류는 되지 않는다 (hardening=true)", async () => {
     storeMock.searchBySource = mock.fn(async () => [
       frag("learn-1", "fact", "learning content", { source: "learning_extraction", importance: 0.95 })
