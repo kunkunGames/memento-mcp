@@ -163,6 +163,88 @@ describe("ContextBuilder.build()", () => {
     assert.equal(typeof result.count, "number");
   });
 
+  it("learning 파편이 flat injectionText와 fragments에 포함된다 (hardening=true)", async () => {
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-1", "fact", "learning content", { source: "learning_extraction" })
+    ]);
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+    });
+
+    const result = await builder.build({});
+
+    assert.ok(result.fragments.some(f => f.id === "learn-1"));
+    assert.match(result.injectionText, /\[LEARNING MEMORY\]/);
+    assert.match(result.injectionText, /learning content/);
+  });
+
+  it("config 기본값(hardening=false)에서는 learning 파편을 주입하지 않는다", async () => {
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-default", "fact", "default learning content", { source: "learning_extraction" })
+    ]);
+    builder = new ContextBuilder({
+      recall : recallMock,
+      store  : storeMock,
+      index  : indexMock,
+      getPool: () => null,
+    });
+
+    const result = await builder.build({});
+
+    assert.equal(storeMock.searchBySource.mock.callCount(), 0);
+    assert.ok(!result.fragments.some(f => f.id === "learn-default"));
+    assert.doesNotMatch(result.injectionText, /\[LEARNING MEMORY\]/);
+    assert.doesNotMatch(result.injectionText, /default learning content/);
+  });
+
+  it("structured=true 시 learning 파편이 rankedInjection에는 포함되고 core 중복 분류는 되지 않는다 (hardening=true)", async () => {
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-1", "fact", "learning content", { source: "learning_extraction", importance: 0.95 })
+    ]);
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+    });
+
+    const result = await builder.build({ structured: true });
+
+    assert.equal(result.learning.recent.length, 1);
+    assert.equal(result.learning.recent[0].id, "learn-1");
+    assert.ok(result.rankedInjection.items.some(item => item.id === "learn-1"));
+    assert.ok(!(result.core.fact || []).some(f => f.id === "learn-1"));
+  });
+
+  it("anchor query에 workspace 필터를 적용하고 rankedInjection에서 anchor로 고정한다 (hardening=true)", async () => {
+    const poolMock = {
+      query: mock.fn(async () => ({
+        rows: [frag("anchor-1", "decision", "anchor content", { is_anchor: true, importance: 1.0 })]
+      }))
+    };
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => poolMock,
+      hardeningEnabled: true,
+    });
+
+    const result = await builder.build({ structured: true, workspace: "maker" });
+
+    assert.equal(poolMock.query.mock.callCount(), 1);
+    const [sql, params] = poolMock.query.mock.calls[0].arguments;
+    assert.match(sql, /workspace = \$\d+ OR workspace IS NULL/);
+    assert.deepEqual(params, ["maker"]);
+    assert.equal(result.rankedInjection.items[0].id, "anchor-1");
+    assert.equal(result.rankedInjection.items[0].anchor, true);
+  });
+
   it("파편이 비어 있으면 _memento_hint에 empty_context 포함", async () => {
     recallMock = mock.fn(async () => ({ fragments: [] }));
     builder    = new ContextBuilder({ recall: recallMock, store: storeMock, index: indexMock, getPool: () => null });
@@ -185,5 +267,75 @@ describe("ContextBuilder.build()", () => {
     const result = await builder.build({});
     assert.ok(result._memento_hint);
     assert.equal(result._memento_hint.signal, "active_errors");
+  });
+
+  /* ── hardening=false 회귀 테스트 (명시적 레거시 호환 모드 검증) ── */
+
+  it("hardening=false(명시적 호환 모드): searchBySource를 호출하지 않는다", async () => {
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-1", "fact", "should not appear")
+    ]);
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: false,
+    });
+
+    await builder.build({});
+    assert.equal(storeMock.searchBySource.mock.callCount(), 0);
+  });
+
+  it("hardening=false: injectionText에 [LEARNING MEMORY]가 없다", async () => {
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-1", "fact", "learning content")
+    ]);
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: false,
+    });
+
+    const result = await builder.build({});
+    assert.ok(!result.injectionText.includes("[LEARNING MEMORY]"));
+    assert.ok(!result.fragments.some(f => f.id === "learn-1"));
+  });
+
+  it("hardening=false: is_anchor=true 파편이 있어도 rankedInjection에서 anchor로 고정되지 않는다", async () => {
+    const poolMock = {
+      query: mock.fn(async () => ({
+        rows: [frag("anchor-1", "decision", "anchor content", { is_anchor: true, importance: 1.0 })]
+      }))
+    };
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => poolMock,
+      hardeningEnabled: false,
+    });
+
+    const result = await builder.build({ structured: true, workspace: "maker" });
+    // legacy 필터(f.type === "anchor")는 항상 빈 배열 → 첫 항목은 anchor:false
+    assert.ok(result.rankedInjection.items.length > 0);
+    assert.equal(result.rankedInjection.items[0].anchor, false);
+  });
+
+  it("hardening=false: 기본 recall 동작과 fragments 반환은 hardening=true와 동일하다", async () => {
+    const builderOff = new ContextBuilder({
+      recall: recallMock, store: storeMock, index: indexMock, getPool: () => null, hardeningEnabled: false,
+    });
+    const builderOn = new ContextBuilder({
+      recall: recallMock, store: storeMock, index: indexMock, getPool: () => null, hardeningEnabled: true,
+    });
+
+    const off = await builderOff.build({});
+    const on  = await builderOn.build({});
+    // learning이 없는 환경에서는 fragments 수가 동일해야 한다
+    assert.equal(off.fragments.length, on.fragments.length);
+    assert.equal(off.wmCount, on.wmCount);
   });
 });

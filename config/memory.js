@@ -89,7 +89,16 @@ export const MEMORY_CONFIG = {
     rankWeights        : {
       importance    : 0.6,
       ema_activation: 0.4
-    }
+    },
+    /**
+     * hardening 기능 플래그 (default: false — 호환성 우선 기본값)
+     *
+     * true : Closed Learning Loop 주입 + is_anchor 기반 anchor 필터 활성화
+     * false: 명시적 레거시 호환 모드 (learning 주입 없음, rankedInjection anchor 필터 legacy)
+     *
+     * 신규 동작이 필요한 소비자만 이 값을 명시적으로 true로 올려 opt-in 한다.
+     */
+    hardening          : { enabled: false }
   },
   /** recall 페이지네이션 설정 */
   pagination: {

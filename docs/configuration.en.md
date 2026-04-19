@@ -217,7 +217,14 @@ export const MEMORY_CONFIG = {
       decision   : 3,
       fact       : 3
     },
-    defaultTokenBudget : 2000
+    defaultTokenBudget : 2000,
+    rankWeights        : {       // structured=true rankedInjection composite score weights (sum = 1.0)
+      importance    : 0.6,
+      ema_activation: 0.4
+    },
+    // New feature gate (default: false — compatibility-first baseline)
+    // Set to true to enable learning injection and is_anchor-based anchor ranking
+    hardening          : { enabled: false }
   },
   pagination: {
     defaultPageSize : 20,
