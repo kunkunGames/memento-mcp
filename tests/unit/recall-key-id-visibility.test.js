@@ -48,6 +48,16 @@ describe("searchBySemantic — SELECT f.key_id 포함", () => {
   });
 });
 
+describe("searchBySource — key_id 배열 필터 포함", () => {
+  it("searchBySource가 key_id = ANY 패턴을 포함하고 있어야 한다", () => {
+    const src = FragmentReader.prototype.searchBySource.toString();
+    assert.ok(
+      src.includes("key_id = ANY("),
+      "searchBySource에 key_id = ANY( 패턴이 없음"
+    );
+  });
+});
+
 /** ── 2. master 케이스: keyId=null 시 key_id 조건 미포함 ───────────────── */
 
 describe("master 케이스 — keyId null 시 WHERE key_id 조건 없어야 함", () => {

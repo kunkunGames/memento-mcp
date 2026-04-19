@@ -291,7 +291,7 @@ describe("ContextBuilder.build()", () => {
     assert.match(result.injectionText, /fallback learning/);
   });
 
-  it("hardening=false(명시적 레거시 모드)에서는 learning 파편을 보조 섹션으로 주입하지 않는다", async () => {
+  it("hardening=false(명시적 호환 모드)에서는 learning 파편을 주입하지 않는다", async () => {
     storeMock.searchBySource = mock.fn(async () => [
       frag("learn-default", "fact", "default learning content", { source: "learning_extraction" })
     ]);

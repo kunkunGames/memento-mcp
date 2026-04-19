@@ -28,6 +28,32 @@ describe("FragmentSearch source filter", () => {
     assert.equal(results[0].id, "learn-1");
   });
 
+  it("source fallback은 group key 배열과 includeSuperseded를 그대로 전달한다", async () => {
+    const search = new FragmentSearch();
+    search.store = {
+      searchByKeywords: mock.fn(async () => []),
+      searchByTopic   : mock.fn(async () => []),
+      searchBySource  : mock.fn(async () => [
+        { id: "learn-1", content: "learning", source: "learning_extraction", importance: 0.8 }
+      ]),
+      getByIds        : mock.fn(async () => [])
+    };
+
+    await search._searchL2(
+      { source: "learning_extraction", includeSuperseded: true, workspace: "maker" },
+      [],
+      "default",
+      ["key-a", "key-b"],
+      null
+    );
+
+    assert.equal(search.store.searchBySource.mock.callCount(), 1);
+    assert.deepEqual(
+      search.store.searchBySource.mock.calls[0].arguments,
+      ["learning_extraction", "default", ["key-a", "key-b"], 30, "maker", true]
+    );
+  });
+
   it("_executeSearch는 HotCache/L1 경로에서도 source 후처리 필터를 적용한다", async () => {
     const search = new FragmentSearch();
     search._searchL1 = mock.fn(async () => ({ ids: ["keep", "drop"], isFallback: false }));

@@ -98,7 +98,7 @@ export const MEMORY_CONFIG = {
      *
      * 신규 동작이 필요한 소비자만 이 값을 명시적으로 true로 올려 opt-in 한다.
      */
-    hardeningEnabled   : false,
+    hardeningEnabled   : true,
     /**
      * hardening 경로에서 보조 섹션 선정을 LLM planner로 위임할지 여부.
      *
