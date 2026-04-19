@@ -221,6 +221,29 @@ describe("ContextBuilder.build()", () => {
     assert.ok(!(result.core.fact || []).some(f => f.id === "learn-1"));
   });
 
+  it("hardening=true 에서 learning 파편 여러 개가 fragments와 rankedInjection에 모두 유지된다", async () => {
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-1", "fact", "learning content 1", { source: "learning_extraction", importance: 0.95 }),
+      frag("learn-2", "fact", "learning content 2", { source: "learning_extraction", importance: 0.9 }),
+    ]);
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+    });
+
+    const flatResult = await builder.build({});
+    assert.ok(flatResult.fragments.some(f => f.id === "learn-1"));
+    assert.ok(flatResult.fragments.some(f => f.id === "learn-2"));
+
+    const structuredResult = await builder.build({ structured: true });
+    assert.equal(structuredResult.learning.recent.length, 2);
+    assert.ok(structuredResult.rankedInjection.items.some(item => item.id === "learn-1"));
+    assert.ok(structuredResult.rankedInjection.items.some(item => item.id === "learn-2"));
+  });
+
   it("anchor query에 workspace 필터를 적용하고 rankedInjection에서 anchor로 고정한다 (hardening=true)", async () => {
     const poolMock = {
       query: mock.fn(async () => ({
