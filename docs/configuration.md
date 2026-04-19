@@ -224,7 +224,7 @@ export const MEMORY_CONFIG = {
     },
     // 신규 기능 게이트 (default: false — 호환성 우선 기본값)
     // true로 설정 시: Closed Learning Loop 주입 활성 + is_anchor 기반 anchor 필터 사용
-    hardening          : { enabled: false }
+    hardeningEnabled   : false
   },
   pagination: {
     defaultPageSize : 20,

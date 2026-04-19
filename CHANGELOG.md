@@ -4,10 +4,10 @@
 
 ### Added — ContextBuilder `hardening` feature gate (default false, explicit opt-in required)
 
-`config/memory.js`의 `contextInjection.hardening.enabled`는 호환성 유지를 위해 기본값이 `false`다.
+`config/memory.js`의 `contextInjection.hardeningEnabled`는 호환성 유지를 위해 기본값이 `false`다.
 
-- **`hardening.enabled=false` (기본)**: 기존 동작 보존. `searchBySource` 미호출, `[LEARNING MEMORY]` 섹션 없음, `rankedInjection` anchor 필터 legacy (`f.type === "anchor"`).
-- **`hardening.enabled=true` (명시적 opt-in)**: Closed Learning Loop 주입 (`[LEARNING MEMORY]` 섹션), `is_anchor=TRUE` 기반 정확한 anchor 고정.
+- **`hardeningEnabled=false` (기본)**: 기존 동작 보존. `searchBySource` 미호출, `[LEARNING MEMORY]` 섹션 없음, `rankedInjection` anchor 필터 legacy (`f.type === "anchor"`).
+- **`hardeningEnabled=true` (명시적 opt-in)**: Closed Learning Loop 주입 (`[LEARNING MEMORY]` 섹션), `is_anchor=TRUE` 기반 정확한 anchor 고정.
 - `ContextBuilder` 생성자에 `hardeningEnabled` 옵션 추가 (테스트/DI용 직접 주입 지원).
 - `tests/unit/context-builder.test.js`: 19개 테스트 (기존 9 → 19). 신규 동작 테스트는 `hardeningEnabled: true` 명시, 회귀 테스트 4개 추가.
 

@@ -98,7 +98,7 @@ export const MEMORY_CONFIG = {
      *
      * 신규 동작이 필요한 소비자만 이 값을 명시적으로 true로 올려 opt-in 한다.
      */
-    hardening          : { enabled: false }
+    hardeningEnabled   : false
   },
   /** recall 페이지네이션 설정 */
   pagination: {

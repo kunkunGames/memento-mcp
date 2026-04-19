@@ -224,7 +224,7 @@ export const MEMORY_CONFIG = {
     },
     // New feature gate (default: false — compatibility-first baseline)
     // Set to true to enable learning injection and is_anchor-based anchor ranking
-    hardening          : { enabled: false }
+    hardeningEnabled   : false
   },
   pagination: {
     defaultPageSize : 20,
