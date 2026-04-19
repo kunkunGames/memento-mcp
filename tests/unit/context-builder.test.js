@@ -283,10 +283,19 @@ describe("ContextBuilder.build()", () => {
       contextText     : "현재 user 질의",
       caseId          : "case-123",
       resolutionStatus: "open",
-      phase           : "debugging"
+      phase           : "debugging",
+      _keyId          : "key-1",
+      _groupKeyIds    : ["key-1", "key-2"]
     });
 
     assert.equal(storeMock.searchBySource.mock.callCount(), 1);
+    assert.deepEqual(storeMock.searchBySource.mock.calls[0].arguments.slice(0, 5), [
+      "learning_extraction",
+      "default",
+      ["key-1", "key-2"],
+      5,
+      null
+    ]);
     assert.ok(result.fragments.some(f => f.id === "learn-fallback-1"));
     assert.match(result.injectionText, /fallback learning/);
   });
