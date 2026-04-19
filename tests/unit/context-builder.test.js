@@ -72,6 +72,7 @@ describe("ContextBuilder.build()", () => {
   let recallMock;
   let indexMock;
   let storeMock;
+  let auxiliaryPlannerMock;
   let builder;
 
   beforeEach(() => {
@@ -96,11 +97,14 @@ describe("ContextBuilder.build()", () => {
       searchBySource: mock.fn(async () => []),
     };
 
+    auxiliaryPlannerMock = mock.fn(async () => ({ sections: [] }));
+
     builder = new ContextBuilder({
-      recall : recallMock,
-      store  : storeMock,
-      index  : indexMock,
-      getPool: () => null,
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
   });
 
@@ -142,7 +146,13 @@ describe("ContextBuilder.build()", () => {
         fragments: [frag("dup-1", params.type, `${params.type} content`)]
       };
     });
-    builder = new ContextBuilder({ recall: recallMock, store: storeMock, index: indexMock, getPool: () => null });
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      auxiliaryPlanner: auxiliaryPlannerMock,
+    });
 
     const result = await builder.build({ types: ["error", "preference"] });
     const ids    = result.fragments.map(f => f.id);
@@ -167,12 +177,14 @@ describe("ContextBuilder.build()", () => {
     storeMock.searchBySource = mock.fn(async () => [
       frag("learn-1", "fact", "learning content", { source: "learning_extraction" })
     ]);
+    auxiliaryPlannerMock = mock.fn(async () => ({ sections: ["learning_memory"] }));
     builder = new ContextBuilder({
       recall          : recallMock,
       store           : storeMock,
       index           : indexMock,
       getPool         : () => null,
       hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const result = await builder.build({});
@@ -182,15 +194,113 @@ describe("ContextBuilder.build()", () => {
     assert.match(result.injectionText, /learning content/);
   });
 
+  it("hardening=true + contextText가 있으면 learning_extraction을 query-aware recall로 먼저 붙인다", async () => {
+    recallMock = mock.fn(async (params) => {
+      if (params.topic === "session_reflect") {
+        return { fragments: [] };
+      }
+      if (params.source === "learning_extraction") {
+        return {
+          fragments: [
+            frag("learn-query-1", "fact", "query matched learning", { source: "learning_extraction" })
+          ]
+        };
+      }
+      return {
+        fragments: [
+          frag(`${params.type}-1`, params.type, `${params.type} content 1`),
+          frag(`${params.type}-2`, params.type, `${params.type} content 2`),
+        ]
+      };
+    });
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-fallback", "fact", "fallback learning", { source: "learning_extraction" })
+    ]);
+    auxiliaryPlannerMock = mock.fn(async () => ({ sections: ["learning_memory"] }));
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
+    });
+
+    const result = await builder.build({
+      contextText     : "현재 user 질의",
+      caseId          : "case-123",
+      resolutionStatus: "open",
+      phase           : "debugging"
+    });
+
+    assert.ok(result.fragments.some(f => f.id === "learn-query-1"));
+    assert.equal(storeMock.searchBySource.mock.callCount(), 0);
+
+    const learningCall = recallMock.mock.calls.find(call => call.arguments[0].source === "learning_extraction");
+    assert.ok(learningCall);
+    assert.equal(learningCall.arguments[0].text, "현재 user 질의");
+    assert.equal(learningCall.arguments[0].contextText, "현재 user 질의");
+    assert.equal(learningCall.arguments[0].caseId, "case-123");
+    assert.equal(learningCall.arguments[0].resolutionStatus, "open");
+    assert.equal(learningCall.arguments[0].phase, "debugging");
+    assert.equal(learningCall.arguments[0].includeLinks, false);
+  });
+
+  it("query-aware learning recall 결과가 없으면 source fallback으로 최근 learning을 붙인다", async () => {
+    recallMock = mock.fn(async (params) => {
+      if (params.topic === "session_reflect") {
+        return { fragments: [] };
+      }
+      if (params.source === "learning_extraction") {
+        return { fragments: [] };
+      }
+      return {
+        fragments: [
+          frag(`${params.type}-1`, params.type, `${params.type} content 1`),
+          frag(`${params.type}-2`, params.type, `${params.type} content 2`),
+        ]
+      };
+    });
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-fallback-1", "fact", "fallback learning", {
+        source           : "learning_extraction",
+        case_id          : "case-123",
+        resolution_status: "open",
+        phase            : "debugging"
+      })
+    ]);
+    auxiliaryPlannerMock = mock.fn(async () => ({ sections: ["learning_memory"] }));
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
+    });
+
+    const result = await builder.build({
+      contextText     : "현재 user 질의",
+      caseId          : "case-123",
+      resolutionStatus: "open",
+      phase           : "debugging"
+    });
+
+    assert.equal(storeMock.searchBySource.mock.callCount(), 1);
+    assert.ok(result.fragments.some(f => f.id === "learn-fallback-1"));
+    assert.match(result.injectionText, /fallback learning/);
+  });
+
   it("config 기본값(hardening=false)에서는 learning 파편을 주입하지 않는다", async () => {
     storeMock.searchBySource = mock.fn(async () => [
       frag("learn-default", "fact", "default learning content", { source: "learning_extraction" })
     ]);
     builder = new ContextBuilder({
-      recall : recallMock,
-      store  : storeMock,
-      index  : indexMock,
-      getPool: () => null,
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const result = await builder.build({});
@@ -238,12 +348,14 @@ describe("ContextBuilder.build()", () => {
     storeMock.searchBySource = mock.fn(async () => [
       frag("learn-1", "fact", "learning content", { source: "learning_extraction", importance: 0.95 })
     ]);
+    auxiliaryPlannerMock = mock.fn(async () => ({ sections: ["learning_memory"] }));
     builder = new ContextBuilder({
       recall          : recallMock,
       store           : storeMock,
       index           : indexMock,
       getPool         : () => null,
       hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const result = await builder.build({ structured: true });
@@ -259,12 +371,14 @@ describe("ContextBuilder.build()", () => {
       frag("learn-1", "fact", "learning content 1", { source: "learning_extraction", importance: 0.95 }),
       frag("learn-2", "fact", "learning content 2", { source: "learning_extraction", importance: 0.9 }),
     ]);
+    auxiliaryPlannerMock = mock.fn(async () => ({ sections: ["learning_memory"] }));
     builder = new ContextBuilder({
       recall          : recallMock,
       store           : storeMock,
       index           : indexMock,
       getPool         : () => null,
       hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const flatResult = await builder.build({});
@@ -277,32 +391,32 @@ describe("ContextBuilder.build()", () => {
     assert.ok(structuredResult.rankedInjection.items.some(item => item.id === "learn-2"));
   });
 
-  it("hardening=true 에서 budget 밖 learning 파편은 LEARNING 섹션과 structured learning에도 포함되지 않는다", async () => {
+  it("hardening=true 에서 보조 섹션 예산을 넘는 learning 파편은 뒤쪽 항목이 잘린다", async () => {
     storeMock.searchBySource = mock.fn(async () => [
       frag("learn-big-1", "fact", "a".repeat(4000), { source: "learning_extraction", importance: 0.95 }),
       frag("learn-big-2", "fact", "b".repeat(4000), { source: "learning_extraction", importance: 0.9 }),
     ]);
+    auxiliaryPlannerMock = mock.fn(async () => ({ sections: ["learning_memory"] }));
     builder = new ContextBuilder({
       recall          : recallMock,
       store           : storeMock,
       index           : indexMock,
       getPool         : () => null,
       hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const flatResult = await builder.build({});
     assert.ok(flatResult.fragments.some(f => f.id === "learn-big-1"));
-    assert.ok(flatResult.fragments.some(f => f.id === "learn-big-2"));
+    assert.ok(!flatResult.fragments.some(f => f.id === "learn-big-2"));
     assert.match(flatResult.injectionText, /a{20}/);
-    assert.match(flatResult.injectionText, /b{20}/);
-    assert.doesNotMatch(flatResult.injectionText, /b{3000}/);
+    assert.doesNotMatch(flatResult.injectionText, /b{20}/);
 
     const structuredResult = await builder.build({ structured: true });
-    assert.equal(structuredResult.learning.recent.length, 2);
+    assert.equal(structuredResult.learning.recent.length, 1);
     assert.equal(structuredResult.learning.recent[0].id, "learn-big-1");
-    assert.equal(structuredResult.learning.recent[1].id, "learn-big-2");
-    assert.ok(structuredResult.learning.recent[1].content.length < 4000);
-    assert.match(structuredResult.learning.recent[1].content, /\.\.\.$/);
+    assert.ok(structuredResult.learning.recent[0].content.length < 4000);
+    assert.match(structuredResult.learning.recent[0].content, /\.\.\.$/);
   });
 
   it("anchor query에 workspace 필터를 적용하고 rankedInjection에서 anchor로 고정한다 (hardening=true)", async () => {
@@ -317,6 +431,7 @@ describe("ContextBuilder.build()", () => {
       index           : indexMock,
       getPool         : () => poolMock,
       hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const result = await builder.build({ structured: true, workspace: "maker" });
@@ -329,9 +444,60 @@ describe("ContextBuilder.build()", () => {
     assert.equal(result.rankedInjection.items[0].anchor, true);
   });
 
+  it("planner가 선택한 error/decision 보조 섹션만 추가로 붙인다", async () => {
+    recallMock = mock.fn(async (params) => {
+      if (params.topic === "session_reflect") return { fragments: [] };
+      if (params.type === "error" && params.text) {
+        return { fragments: [frag("err-aux-1", "error", "targeted error playbook")] };
+      }
+      if (params.type === "decision" && params.text) {
+        return { fragments: [frag("dec-aux-1", "decision", "targeted decision memory")] };
+      }
+      return {
+        fragments: [
+          frag(`${params.type}-1`, params.type, `${params.type} content 1`),
+          frag(`${params.type}-2`, params.type, `${params.type} content 2`),
+        ]
+      };
+    });
+    auxiliaryPlannerMock = mock.fn(async () => ({
+      sections: ["error_playbook", "decision_memory"]
+    }));
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
+    });
+
+    const flatResult = await builder.build({
+      contextText: "현재 에러 원인과 설계 결정을 같이 보고 싶다"
+    });
+
+    assert.match(flatResult.injectionText, /\[ERROR PLAYBOOK\]/);
+    assert.match(flatResult.injectionText, /targeted error playbook/);
+    assert.match(flatResult.injectionText, /\[DECISION MEMORY\]/);
+    assert.match(flatResult.injectionText, /targeted decision memory/);
+
+    const structuredResult = await builder.build({
+      contextText: "현재 에러 원인과 설계 결정을 같이 보고 싶다",
+      structured : true
+    });
+    assert.equal(structuredResult.auxiliary.errorPlaybook.length, 1);
+    assert.equal(structuredResult.auxiliary.decisionMemory.length, 1);
+  });
+
   it("파편이 비어 있으면 _memento_hint에 empty_context 포함", async () => {
     recallMock = mock.fn(async () => ({ fragments: [] }));
-    builder    = new ContextBuilder({ recall: recallMock, store: storeMock, index: indexMock, getPool: () => null });
+    builder    = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      auxiliaryPlanner: auxiliaryPlannerMock,
+    });
 
     const result = await builder.build({});
     assert.ok(result._memento_hint);
@@ -346,7 +512,13 @@ describe("ContextBuilder.build()", () => {
       }
       return { fragments: [] };
     });
-    builder = new ContextBuilder({ recall: recallMock, store: storeMock, index: indexMock, getPool: () => null });
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      auxiliaryPlanner: auxiliaryPlannerMock,
+    });
 
     const result = await builder.build({});
     assert.ok(result._memento_hint);
@@ -365,6 +537,7 @@ describe("ContextBuilder.build()", () => {
       index           : indexMock,
       getPool         : () => null,
       hardeningEnabled: false,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     await builder.build({});
@@ -381,6 +554,7 @@ describe("ContextBuilder.build()", () => {
       index           : indexMock,
       getPool         : () => null,
       hardeningEnabled: false,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const result = await builder.build({});
@@ -400,6 +574,7 @@ describe("ContextBuilder.build()", () => {
       index           : indexMock,
       getPool         : () => poolMock,
       hardeningEnabled: false,
+      auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const result = await builder.build({ structured: true, workspace: "maker" });
@@ -410,10 +585,10 @@ describe("ContextBuilder.build()", () => {
 
   it("hardening=false: 기본 recall 동작과 fragments 반환은 hardening=true와 동일하다", async () => {
     const builderOff = new ContextBuilder({
-      recall: recallMock, store: storeMock, index: indexMock, getPool: () => null, hardeningEnabled: false,
+      recall: recallMock, store: storeMock, index: indexMock, getPool: () => null, hardeningEnabled: false, auxiliaryPlanner: auxiliaryPlannerMock,
     });
     const builderOn = new ContextBuilder({
-      recall: recallMock, store: storeMock, index: indexMock, getPool: () => null, hardeningEnabled: true,
+      recall: recallMock, store: storeMock, index: indexMock, getPool: () => null, hardeningEnabled: true, auxiliaryPlanner: auxiliaryPlannerMock,
     });
 
     const off = await builderOff.build({});

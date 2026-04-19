@@ -93,12 +93,25 @@ export const MEMORY_CONFIG = {
     /**
      * hardening 기능 플래그 (default: false — 호환성 우선 기본값)
      *
-     * true : Closed Learning Loop 주입 + is_anchor 기반 anchor 필터 활성화
+     * true : query-aware auxiliary memory 주입 + is_anchor 기반 anchor 필터 활성화
      * false: 명시적 레거시 호환 모드 (learning 주입 없음, rankedInjection anchor 필터 legacy)
      *
      * 신규 동작이 필요한 소비자만 이 값을 명시적으로 true로 올려 opt-in 한다.
      */
-    hardeningEnabled   : false
+    hardeningEnabled   : false,
+    /**
+     * hardening 경로에서 보조 섹션 선정을 LLM planner로 위임할지 여부.
+     *
+     * true : 질의/상황 signal 기반으로 auxiliary section 후보를 LLM이 선택
+     * false: deterministic heuristic fallback만 사용
+     */
+    llmPlannerEnabled  : true,
+    /** 한 번의 context() 응답에 붙일 최대 보조 섹션 수 */
+    maxAuxiliarySections: 2,
+    /** 보조 섹션 recall에 배정할 기본 토큰 예산 */
+    auxiliaryTokenBudget: 250,
+    /** case memory 섹션에서 최대 반환할 케이스 수 */
+    caseMemoryMaxCases : 2
   },
   /** recall 페이지네이션 설정 */
   pagination: {

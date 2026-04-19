@@ -2,14 +2,17 @@
 
 ## [Unreleased]
 
-### Added — ContextBuilder `hardening` feature gate (default false, explicit opt-in required)
+### Added — ContextBuilder `hardening` feature gate with planner-first auxiliary sections (default false, explicit opt-in required)
 
 `config/memory.js`의 `contextInjection.hardeningEnabled`는 호환성 유지를 위해 기본값이 `false`다.
 
-- **`hardeningEnabled=false` (기본)**: 기존 동작 보존. `searchBySource` 미호출, `[LEARNING MEMORY]` 섹션 없음, `rankedInjection` anchor 필터 legacy (`f.type === "anchor"`).
-- **`hardeningEnabled=true` (명시적 opt-in)**: Closed Learning Loop 주입 (`[LEARNING MEMORY]` 섹션), `is_anchor=TRUE` 기반 정확한 anchor 고정.
-- `ContextBuilder` 생성자에 `hardeningEnabled` 옵션 추가 (테스트/DI용 직접 주입 지원).
-- `tests/unit/context-builder.test.js`: 19개 테스트 (기존 9 → 19). 신규 동작 테스트는 `hardeningEnabled: true` 명시, 회귀 테스트 4개 추가.
+- **`hardeningEnabled=false` (기본)**: 기존 bootstrap 중심 동작 보존. query-aware auxiliary section attach 비활성화, `rankedInjection` anchor 필터 legacy 유지.
+- **`hardeningEnabled=true` (명시적 opt-in)**: `contextText`, `caseId`, `resolutionStatus`, `phase`를 바탕으로 `AuxiliarySectionPlanner`가 보조 섹션을 고른다. 현재 구현된 보조 섹션은 `[LEARNING MEMORY]`, `[ERROR PLAYBOOK]`, `[DECISION MEMORY]`, `[OPEN QUESTIONS MEMORY]`, `[CASE MEMORY]`다.
+- planner는 LLM 우선으로 섹션을 선택하고, 실패 시 deterministic heuristic fallback으로 degrade한다.
+- 보조 섹션은 sparse render 방식이라 실제 매칭 결과가 있을 때만 출력된다. 빈 섹션 헤더는 출력하지 않는다.
+- `contextInjection.llmPlannerEnabled`, `maxAuxiliarySections`, `auxiliaryTokenBudget`, `caseMemoryMaxCases` 설정이 추가되었다.
+- `ContextBuilder` 생성자에 `hardeningEnabled`와 `auxiliaryPlanner` 주입 옵션이 추가되어 테스트/DI에서 planner 경로를 직접 제어할 수 있다.
+- 관련 회귀 테스트가 `tests/unit/context-builder.test.js`, `tests/unit/auxiliary-section-planner.test.js`, `tests/unit/context-structured.test.js`, `tests/unit/fragment-search-source-filter.test.js`에 추가 또는 확장되었다.
 
 ## [2.8.0] - 2026-04-16
 

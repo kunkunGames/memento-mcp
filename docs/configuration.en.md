@@ -223,8 +223,12 @@ export const MEMORY_CONFIG = {
       ema_activation: 0.4
     },
     // New feature gate (default: false — compatibility-first baseline)
-    // Set to true to enable learning injection and is_anchor-based anchor ranking
-    hardeningEnabled   : false
+    // Set to true to enable query-aware auxiliary memory + is_anchor-based anchor ranking
+    hardeningEnabled    : false,
+    llmPlannerEnabled   : true,  // Use LLM planner for auxiliary section selection
+    maxAuxiliarySections: 2,     // Max auxiliary sections per context() response
+    auxiliaryTokenBudget: 250,   // Default recall budget for one auxiliary section
+    caseMemoryMaxCases  : 2      // Max cases in CASE MEMORY
   },
   pagination: {
     defaultPageSize : 20,

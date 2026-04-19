@@ -223,8 +223,12 @@ export const MEMORY_CONFIG = {
       ema_activation: 0.4
     },
     // 신규 기능 게이트 (default: false — 호환성 우선 기본값)
-    // true로 설정 시: Closed Learning Loop 주입 활성 + is_anchor 기반 anchor 필터 사용
-    hardeningEnabled   : false
+    // true로 설정 시: query-aware auxiliary memory + is_anchor 기반 anchor 필터 사용
+    hardeningEnabled    : false,
+    llmPlannerEnabled   : true,  // auxiliary section selection에 LLM planner 사용
+    maxAuxiliarySections: 2,     // 한 번에 붙일 보조 섹션 최대 수
+    auxiliaryTokenBudget: 250,   // 보조 섹션 recall 기본 예산
+    caseMemoryMaxCases  : 2      // CASE MEMORY 최대 case 수
   },
   pagination: {
     defaultPageSize : 20,
