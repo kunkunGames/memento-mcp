@@ -277,6 +277,34 @@ describe("ContextBuilder.build()", () => {
     assert.ok(structuredResult.rankedInjection.items.some(item => item.id === "learn-2"));
   });
 
+  it("hardening=true 에서 budget 밖 learning 파편은 LEARNING 섹션과 structured learning에도 포함되지 않는다", async () => {
+    storeMock.searchBySource = mock.fn(async () => [
+      frag("learn-big-1", "fact", "a".repeat(4000), { source: "learning_extraction", importance: 0.95 }),
+      frag("learn-big-2", "fact", "b".repeat(4000), { source: "learning_extraction", importance: 0.9 }),
+    ]);
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+    });
+
+    const flatResult = await builder.build({});
+    assert.ok(flatResult.fragments.some(f => f.id === "learn-big-1"));
+    assert.ok(flatResult.fragments.some(f => f.id === "learn-big-2"));
+    assert.match(flatResult.injectionText, /a{20}/);
+    assert.match(flatResult.injectionText, /b{20}/);
+    assert.doesNotMatch(flatResult.injectionText, /b{3000}/);
+
+    const structuredResult = await builder.build({ structured: true });
+    assert.equal(structuredResult.learning.recent.length, 2);
+    assert.equal(structuredResult.learning.recent[0].id, "learn-big-1");
+    assert.equal(structuredResult.learning.recent[1].id, "learn-big-2");
+    assert.ok(structuredResult.learning.recent[1].content.length < 4000);
+    assert.match(structuredResult.learning.recent[1].content, /\.\.\.$/);
+  });
+
   it("anchor query에 workspace 필터를 적용하고 rankedInjection에서 anchor로 고정한다 (hardening=true)", async () => {
     const poolMock = {
       query: mock.fn(async () => ({

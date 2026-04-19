@@ -235,8 +235,13 @@ need_cmd rsync
 need_cmd cmp
 need_cmd sort
 need_cmd comm
-need_cmd curl
-need_cmd launchctl
+
+if [[ "$RESTART_SERVICE" -eq 1 && "$DRY_RUN" -ne 1 ]]; then
+  need_cmd launchctl
+  if [[ -n "$HEALTH_URL" ]]; then
+    need_cmd curl
+  fi
+fi
 
 [[ -d "$SOURCE_DIR/.git" ]] || die "Source clone is not a git repo: $SOURCE_DIR"
 [[ -d "$LIVE_DIR/.git" ]] || die "Live dir is not a git repo: $LIVE_DIR"
