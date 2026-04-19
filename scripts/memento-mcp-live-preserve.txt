@@ -1,0 +1,10 @@
+# Paths in the live runtime repo that should stay local-only.
+# Shell case patterns are supported.
+
+config/memory.js
+.env
+.env.*
+logs
+logs/**
+node_modules
+node_modules/**
