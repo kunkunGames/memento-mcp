@@ -26,6 +26,15 @@ describe("AuxiliarySectionPlanner", () => {
     assert.ok(result.sections.includes("procedure_memory"));
   });
 
+  it("heuristic planner는 show 같은 부분 문자열로 procedure_memory를 고르지 않는다", () => {
+    const result = buildHeuristicAuxiliaryPlan({
+      contextText: "show me recent errors",
+      maxSections: 3
+    });
+
+    assert.ok(!result.sections.includes("procedure_memory"));
+  });
+
   it("heuristic planner는 maxSections=2일 때 learning보다 error/procedure를 우선한다", () => {
     const result = buildHeuristicAuxiliaryPlan({
       contextText: "에러 복구 절차를 알려줘",
