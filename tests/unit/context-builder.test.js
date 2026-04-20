@@ -506,6 +506,46 @@ describe("ContextBuilder.build()", () => {
     assert.equal(structuredResult.auxiliary.decisionMemory.length, 1);
   });
 
+  it("planner가 선택한 procedure 보조 섹션을 추가로 붙인다", async () => {
+    recallMock = mock.fn(async (params) => {
+      if (params.topic === "session_reflect") return { fragments: [] };
+      if (params.type === "procedure" && params.text) {
+        return { fragments: [frag("proc-aux-1", "procedure", "targeted procedure memory")] };
+      }
+      return {
+        fragments: [
+          frag(`${params.type}-1`, params.type, `${params.type} content 1`),
+          frag(`${params.type}-2`, params.type, `${params.type} content 2`),
+        ]
+      };
+    });
+    auxiliaryPlannerMock = mock.fn(async () => ({
+      sections: ["procedure_memory"]
+    }));
+    builder = new ContextBuilder({
+      recall          : recallMock,
+      store           : storeMock,
+      index           : indexMock,
+      getPool         : () => null,
+      hardeningEnabled: true,
+      auxiliaryPlanner: auxiliaryPlannerMock,
+    });
+
+    const flatResult = await builder.build({
+      contextText: "배포 절차와 복구 순서를 보고 싶다"
+    });
+
+    assert.match(flatResult.injectionText, /\[PROCEDURE MEMORY\]/);
+    assert.match(flatResult.injectionText, /targeted procedure memory/);
+
+    const structuredResult = await builder.build({
+      contextText: "배포 절차와 복구 순서를 보고 싶다",
+      structured : true
+    });
+    assert.equal(structuredResult.auxiliary.procedureMemory.length, 1);
+    assert.equal(structuredResult.auxiliary.procedureMemory[0].id, "proc-aux-1");
+  });
+
   it("파편이 비어 있으면 _memento_hint에 empty_context 포함", async () => {
     recallMock = mock.fn(async () => ({ fragments: [] }));
     builder    = new ContextBuilder({

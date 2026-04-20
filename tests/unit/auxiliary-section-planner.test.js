@@ -17,6 +17,34 @@ describe("AuxiliarySectionPlanner", () => {
     assert.ok(result.sections.includes("error_playbook"));
   });
 
+  it("heuristic planner가 절차/배포 질의에서 procedure_memory를 고른다", () => {
+    const result = buildHeuristicAuxiliaryPlan({
+      contextText: "배포 절차와 복구 단계가 필요하다",
+      maxSections: 3
+    });
+
+    assert.ok(result.sections.includes("procedure_memory"));
+  });
+
+  it("heuristic planner는 show 같은 부분 문자열로 procedure_memory를 고르지 않는다", () => {
+    const result = buildHeuristicAuxiliaryPlan({
+      contextText: "show me recent errors",
+      maxSections: 3
+    });
+
+    assert.ok(!result.sections.includes("procedure_memory"));
+  });
+
+  it("heuristic planner는 maxSections=2일 때 learning보다 error/procedure를 우선한다", () => {
+    const result = buildHeuristicAuxiliaryPlan({
+      contextText: "에러 복구 절차를 알려줘",
+      phase      : "debugging",
+      maxSections: 2
+    });
+
+    assert.deepEqual(result.sections, ["error_playbook", "procedure_memory"]);
+  });
+
   it("LLM planner 결과를 sanitize하여 허용된 섹션만 유지한다", async () => {
     const llmJsonFn = mock.fn(async () => ({
       sections : ["decision_memory", "invalid_section", "case_memory"],
@@ -50,6 +78,7 @@ describe("AuxiliarySectionPlanner", () => {
     });
 
     assert.equal(result.source, "heuristic");
+    assert.ok(result.sections.includes("error_playbook"));
     assert.ok(result.sections.includes("case_memory"));
     assert.ok(result.sections.includes("open_questions_memory"));
   });
