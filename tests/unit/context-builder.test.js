@@ -283,15 +283,30 @@ describe("ContextBuilder.build()", () => {
       contextText     : "현재 user 질의",
       caseId          : "case-123",
       resolutionStatus: "open",
-      phase           : "debugging"
+      phase           : "debugging",
+      _keyId          : "key-1",
+      _groupKeyIds    : ["key-1", "key-2"]
     });
 
     assert.equal(storeMock.searchBySource.mock.callCount(), 1);
+    assert.deepEqual(storeMock.searchBySource.mock.calls[0].arguments, [
+      "learning_extraction",
+      "default",
+      ["key-1", "key-2"],
+      5,
+      null,
+      false,
+      {
+        caseId          : "case-123",
+        resolutionStatus: "open",
+        phase           : "debugging"
+      }
+    ]);
     assert.ok(result.fragments.some(f => f.id === "learn-fallback-1"));
     assert.match(result.injectionText, /fallback learning/);
   });
 
-  it("hardening=false(명시적 레거시 모드)에서는 learning 파편을 보조 섹션으로 주입하지 않는다", async () => {
+  it("hardening=false(명시적 호환 모드)에서는 learning 파편을 주입하지 않는다", async () => {
     storeMock.searchBySource = mock.fn(async () => [
       frag("learn-default", "fact", "default learning content", { source: "learning_extraction" })
     ]);

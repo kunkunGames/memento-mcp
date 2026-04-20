@@ -29,4 +29,10 @@ describe("recall valid_to filter", () => {
     const src = FragmentReader.prototype.searchByKeywords.toString();
     assert.ok(src.includes("includeSuperseded"), "searchByKeywords should check options.includeSuperseded");
   });
+
+  it("searchBySource는 includeSuperseded=false일 때만 valid_to 필터를 적용한다", () => {
+    const src = FragmentReader.prototype.searchBySource.toString();
+    assert.ok(src.includes("includeSuperseded"), "searchBySource should accept includeSuperseded");
+    assert.ok(src.includes("valid_to IS NULL"), "searchBySource should conditionally filter valid_to");
+  });
 });
