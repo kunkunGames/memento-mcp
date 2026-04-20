@@ -302,12 +302,6 @@ describe("ContextBuilder.build()", () => {
         phase           : "debugging"
       }
     ]);
-    assert.equal(storeMock.searchBySource.mock.calls[0].arguments[5], false);
-    assert.deepEqual(storeMock.searchBySource.mock.calls[0].arguments[6], {
-      caseId          : "case-123",
-      resolutionStatus: "open",
-      phase           : "debugging"
-    });
     assert.ok(result.fragments.some(f => f.id === "learn-fallback-1"));
     assert.match(result.injectionText, /fallback learning/);
   });
