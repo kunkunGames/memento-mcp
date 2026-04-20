@@ -289,12 +289,18 @@ describe("ContextBuilder.build()", () => {
     });
 
     assert.equal(storeMock.searchBySource.mock.callCount(), 1);
-    assert.deepEqual(storeMock.searchBySource.mock.calls[0].arguments.slice(0, 5), [
+    assert.deepEqual(storeMock.searchBySource.mock.calls[0].arguments, [
       "learning_extraction",
       "default",
       ["key-1", "key-2"],
       5,
-      null
+      null,
+      false,
+      {
+        caseId          : "case-123",
+        resolutionStatus: "open",
+        phase           : "debugging"
+      }
     ]);
     assert.equal(storeMock.searchBySource.mock.calls[0].arguments[5], false);
     assert.deepEqual(storeMock.searchBySource.mock.calls[0].arguments[6], {
