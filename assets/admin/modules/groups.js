@@ -10,7 +10,7 @@ import { api }                           from "./api.js";
 import { showToast, showModal, closeModal } from "./ui.js";
 import { fmt, fmtDate, loadingHtml }     from "./format.js";
 
-function renderGroupKpiRow(groups, keys) {
+export function renderGroupKpiRow(groups, keys) {
   const totalGroups  = groups.length;
   const totalMembers = groups.reduce((sum, g) => sum + (g.member_count ?? 0), 0);
   const emptyGroups  = groups.filter(g => (g.member_count ?? 0) === 0).length;
@@ -50,7 +50,7 @@ function renderGroupKpiRow(groups, keys) {
   return grid;
 }
 
-function renderGroupTable(groups) {
+export function renderGroupTable(groups) {
   const wrap = document.createElement("div");
   wrap.className = "glass-panel flex-1 flex flex-col min-h-0";
 
@@ -142,7 +142,7 @@ function renderGroupTable(groups) {
   return wrap;
 }
 
-function renderGroupInspector(selected, members) {
+export function renderGroupInspector(selected, members) {
   const panel = document.createElement("aside");
   panel.className = "w-96 bg-surface-container-high border-l border-white/5 flex flex-col p-6 gap-6 relative overflow-y-auto";
   panel.id = "group-inspector";

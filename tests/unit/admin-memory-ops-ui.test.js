@@ -3,39 +3,42 @@
  *
  * 작성자: 최진호
  * 작성일: 2026-03-26
+ * 수정일: 2026-04-19 (ESM 모듈 직접 import 방식으로 전환)
  */
 
 import { test, describe, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { loadAdmin, flatQuery, AdminEsmLoadError } from "./admin-test-helper.js";
+import { setupDom, flatQuery } from "./admin-test-helper.js";
 
-let mod;
-let _adminLoaded = false;
-try {
-  loadAdmin();
-  _adminLoaded = true;
-} catch (e) {
-  if (!(e instanceof AdminEsmLoadError)) throw e;
-}
+/* DOM mock을 모듈 import 전에 주입 */
+setupDom();
 
-const _describe = _adminLoaded ? describe : describe.skip;
+const {
+  renderMemoryFilters,
+  renderFragmentList,
+  renderRetrievalAnalytics,
+  renderAnomalyCards,
+  renderRecentEventsChart,
+  renderFragmentInspector,
+  renderPagination
+} = await import("../../assets/admin/modules/memory.js");
+
+const { state } = await import("../../assets/admin/modules/state.js");
 
 /* ================================================================
    Memory Filters
    ================================================================ */
 
-_describe("renderMemoryFilters", () => {
-  beforeEach(() => { mod = loadAdmin(); });
-
+describe("renderMemoryFilters", () => {
   test("glass-panel + border-l-2 border-primary/40", () => {
-    const bar = mod.renderMemoryFilters();
+    const bar = renderMemoryFilters();
     assert.ok(bar.className.includes("glass-panel"));
     assert.ok(bar.className.includes("border-l-2"));
     assert.ok(bar.className.includes("border-primary/40"));
   });
 
   test("filter-topic, filter-type, filter-key-id 존재", () => {
-    const bar = mod.renderMemoryFilters();
+    const bar = renderMemoryFilters();
     const all = [];
     function walk(n) { all.push(n); (n.children ?? []).forEach(walk); }
     walk(bar);
@@ -45,7 +48,7 @@ _describe("renderMemoryFilters", () => {
   });
 
   test("SEARCH 버튼 존재", () => {
-    const bar = mod.renderMemoryFilters();
+    const bar = renderMemoryFilters();
     const all = [];
     function walk(n) { all.push(n); (n.children ?? []).forEach(walk); }
     walk(bar);
@@ -57,18 +60,16 @@ _describe("renderMemoryFilters", () => {
    Fragment List (Search Explorer)
    ================================================================ */
 
-_describe("renderFragmentList", () => {
-  beforeEach(() => { mod = loadAdmin(); });
-
+describe("renderFragmentList", () => {
   test("fragments 비어있으면 빈 상태 텍스트", () => {
-    const el = mod.renderFragmentList([]);
+    const el = renderFragmentList([]);
     assert.ok(el.textContent.includes("결과 없음"));
   });
 
   test("glass-panel + shadow-2xl + overflow-hidden", () => {
     const frags = [{ id: "f1", topic: "test", type: "fact", content: "hello", importance: 0.8, created_at: "2024-01-01" }];
-    mod.state.selectedFragment = null;
-    const panel = mod.renderFragmentList(frags);
+    state.selectedFragment = null;
+    const panel = renderFragmentList(frags);
     assert.ok(panel.className.includes("glass-panel"));
     assert.ok(panel.className.includes("shadow-2xl"));
     assert.ok(panel.className.includes("overflow-hidden"));
@@ -76,16 +77,16 @@ _describe("renderFragmentList", () => {
 
   test("query box with bg-surface-container-highest", () => {
     const frags = [{ id: "f1", topic: "t", type: "fact", content: "c" }];
-    mod.state.selectedFragment = null;
-    const panel = mod.renderFragmentList(frags);
+    state.selectedFragment = null;
+    const panel = renderFragmentList(frags);
     const queryBox = panel.querySelector(".bg-surface-container-highest");
     assert.ok(queryBox, "query box 존재");
   });
 
   test("fragment item에 ID badge + UTILITY_SCORE + ACCESS", () => {
     const frags = [{ id: "f1", topic: "arch", type: "decision", content: "content", importance: 0.9, access_count: 5, created_at: "2024-06-01" }];
-    mod.state.selectedFragment = null;
-    const panel = mod.renderFragmentList(frags);
+    state.selectedFragment = null;
+    const panel = renderFragmentList(frags);
     const item = panel.querySelector("[data-frag-id]");
     assert.ok(item, "fragment item 존재");
 
@@ -102,17 +103,15 @@ _describe("renderFragmentList", () => {
    Retrieval Analytics
    ================================================================ */
 
-_describe("renderRetrievalAnalytics", () => {
-  beforeEach(() => { mod = loadAdmin(); });
-
+describe("renderRetrievalAnalytics", () => {
   test("glass-panel + border-primary/20", () => {
-    const panel = mod.renderRetrievalAnalytics({});
+    const panel = renderRetrievalAnalytics({});
     assert.ok(panel.className.includes("glass-panel"));
     assert.ok(panel.className.includes("border-primary/20"));
   });
 
   test("Retrieval Analytics 타이틀", () => {
-    const panel = mod.renderRetrievalAnalytics({});
+    const panel = renderRetrievalAnalytics({});
     const all = [];
     function walk(n) { all.push(n); (n.children ?? []).forEach(walk); }
     walk(panel);
@@ -120,7 +119,7 @@ _describe("renderRetrievalAnalytics", () => {
   });
 
   test("HIT RATE + RERANK USAGE", () => {
-    const panel = mod.renderRetrievalAnalytics({});
+    const panel = renderRetrievalAnalytics({});
     const all = [];
     function walk(n) { all.push(n); (n.children ?? []).forEach(walk); }
     walk(panel);
@@ -133,28 +132,26 @@ _describe("renderRetrievalAnalytics", () => {
    Anomaly Cards
    ================================================================ */
 
-_describe("renderAnomalyCards", () => {
-  beforeEach(() => { mod = loadAdmin(); });
-
+describe("renderAnomalyCards", () => {
   test("anomalies=null이면 empty fragment", () => {
-    const el = mod.renderAnomalyCards(null);
+    const el = renderAnomalyCards(null);
     assert.equal(el.children.length, 0);
   });
 
   test("glass-panel + border-error/20", () => {
-    const panel = mod.renderAnomalyCards({ contradictions: 2 });
+    const panel = renderAnomalyCards({ contradictions: 2 });
     assert.ok(panel.className.includes("glass-panel"));
     assert.ok(panel.className.includes("border-error/20"));
   });
 
   test("4 anomaly items", () => {
-    const panel = mod.renderAnomalyCards({ contradictions: 0, superseded: 0, qualityUnverified: 0, embeddingBacklog: 0 });
+    const panel = renderAnomalyCards({ contradictions: 0, superseded: 0, qualityUnverified: 0, embeddingBacklog: 0 });
     const items = panel.querySelectorAll("[data-anomaly]");
     assert.equal(items.length, 4);
   });
 
   test("critical item with bg-error-container/10", () => {
-    const panel = mod.renderAnomalyCards({ contradictions: 3 });
+    const panel = renderAnomalyCards({ contradictions: 3 });
     const critical = panel.querySelector(".bg-error-container\\/10");
     assert.ok(critical);
   });
@@ -164,16 +161,14 @@ _describe("renderAnomalyCards", () => {
    Recent Events Chart
    ================================================================ */
 
-_describe("renderRecentEventsChart", () => {
-  beforeEach(() => { mod = loadAdmin(); });
-
+describe("renderRecentEventsChart", () => {
   test("glass-panel wrapper", () => {
-    const panel = mod.renderRecentEventsChart();
+    const panel = renderRecentEventsChart();
     assert.ok(panel.className.includes("glass-panel"));
   });
 
   test("RECALL_EVENTS + QUERY_LOAD legend", () => {
-    const panel = mod.renderRecentEventsChart();
+    const panel = renderRecentEventsChart();
     const all = [];
     function walk(n) { all.push(n); (n.children ?? []).forEach(walk); }
     walk(panel);
@@ -182,7 +177,7 @@ _describe("renderRecentEventsChart", () => {
   });
 
   test("bg-surface-container-lowest chart area", () => {
-    const panel = mod.renderRecentEventsChart();
+    const panel = renderRecentEventsChart();
     assert.ok(panel.querySelector(".bg-surface-container-lowest"));
   });
 });
@@ -191,17 +186,15 @@ _describe("renderRecentEventsChart", () => {
    Fragment Inspector
    ================================================================ */
 
-_describe("renderFragmentInspector", () => {
-  beforeEach(() => { mod = loadAdmin(); });
-
+describe("renderFragmentInspector", () => {
   test("fragment=null이면 empty fragment", () => {
-    const el = mod.renderFragmentInspector(null);
+    const el = renderFragmentInspector(null);
     assert.equal(el.children.length, 0);
   });
 
   test("glass-panel + border-primary/20", () => {
     const frag = { id: "f1", content: "test", type: "fact", importance: 0.8, created_at: "2024-01-01" };
-    const panel = mod.renderFragmentInspector(frag);
+    const panel = renderFragmentInspector(frag);
     assert.ok(panel.className.includes("glass-panel"));
     assert.ok(panel.className.includes("border-primary/20"));
   });
@@ -211,19 +204,17 @@ _describe("renderFragmentInspector", () => {
    Pagination
    ================================================================ */
 
-_describe("renderPagination", () => {
-  beforeEach(() => { mod = loadAdmin(); });
-
+describe("renderPagination", () => {
   test("memoryPages <= 1이면 빈 fragment", () => {
-    mod.state.memoryPages = 1;
-    const el = mod.renderPagination();
+    state.memoryPages = 1;
+    const el = renderPagination();
     assert.equal(el.children.length, 0);
   });
 
   test("memoryPages=3이면 5개 버튼 (prev + 3 pages + next)", () => {
-    mod.state.memoryPages = 3;
-    mod.state.memoryPage  = 1;
-    const wrap = mod.renderPagination();
+    state.memoryPages = 3;
+    state.memoryPage  = 1;
+    const wrap = renderPagination();
     const buttons = flatQuery(wrap, "button");
     assert.equal(buttons.length, 5);
   });

@@ -10,7 +10,7 @@ import { api }               from "./api.js";
 import { renderCommandBar }  from "./layout.js";
 import { fmt, fmtBytes, loadingHtml, relativeTime } from "./format.js";
 
-function renderOverviewCards(stats) {
+export function renderOverviewCards(stats) {
   if (!stats) return loadingHtml();
 
   const cards  = [
@@ -62,7 +62,7 @@ function renderOverviewCards(stats) {
   return grid;
 }
 
-function renderHealthPanel(stats) {
+export function renderHealthPanel(stats) {
   if (!stats) return null;
   const sys = stats.system ?? {};
 
@@ -165,7 +165,7 @@ function renderHealthPanel(stats) {
   return panel;
 }
 
-function renderTimeline(activities) {
+export function renderTimeline(activities) {
   const panel = document.createElement("section");
   panel.className = "glass-panel";
 
@@ -245,7 +245,7 @@ function renderTimeline(activities) {
   return panel;
 }
 
-function renderRiskPanel(stats) {
+export function renderRiskPanel(stats) {
   const panel = document.createElement("section");
   panel.className = "glass-panel";
 
@@ -309,7 +309,7 @@ function renderRiskPanel(stats) {
   return panel;
 }
 
-function renderQuickActions() {
+export function renderQuickActions() {
   const panel = document.createElement("section");
   panel.className = "glass-panel bg-gradient-to-br from-surface-container to-surface-container-high";
 
@@ -356,7 +356,7 @@ function renderQuickActions() {
   return panel;
 }
 
-function renderLatencyIndex() {
+export function renderLatencyIndex() {
   const panel = document.createElement("div");
   panel.className = "glass-panel p-4";
 
@@ -394,7 +394,7 @@ function renderLatencyIndex() {
   return panel;
 }
 
-function renderQualityCoverage() {
+export function renderQualityCoverage() {
   const panel = document.createElement("div");
   panel.className = "glass-panel p-4 flex items-center gap-4";
 
@@ -451,7 +451,7 @@ function renderQualityCoverage() {
   return panel;
 }
 
-function renderTopTopics(stats) {
+export function renderTopTopics(stats) {
   const panel = document.createElement("div");
   panel.className = "glass-panel p-4";
 

@@ -1,11 +1,16 @@
 #!/usr/bin/env node
 /**
- * 기존 파편 임베딩 일괄 생성 스크립트
+ * backfill-embeddings.js — 기존 파편 임베딩 일괄 생성
  *
  * 작성자: 최진호
  * 작성일: 2026-03-07
+ * 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
  *
- * 실행: DATABASE_URL=$DATABASE_URL node scripts/backfill-embeddings.js
+ * 목적: agent_memory.fragments 테이블에서 embedding IS NULL인 파편에 임베딩 벡터를 일괄 생성한다.
+ * 호출 조건: EMBEDDING_PROVIDER 변경 후 기존 파편 재임베딩, 임베딩 API 장애 복구 후 누락 파편 처리
+ * 빈도: 조건부 1회
+ * 의존: DATABASE_URL, EMBEDDING_API_KEY(또는 OPENAI_API_KEY) 또는 EMBEDDING_PROVIDER=transformers
+ * 관련 문서: docs/INSTALL.md#업그레이드-기존-설치, docs/operations/maintenance.md
  *
  * importance 무관하게 embedding IS NULL인 모든 파편을 대상으로 한다.
  * 배치 크기 10, API rate limit 고려 500ms 간격.

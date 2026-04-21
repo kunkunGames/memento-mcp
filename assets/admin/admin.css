@@ -470,6 +470,121 @@ body {
 }
 
 
+/* ── Metrics Dashboard ────────────────────────────────── */
+.metrics-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 0;
+}
+
+@media (max-width: 1280px) {
+  .metrics-card-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .metrics-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.metrics-card {
+  position: relative;
+  overflow: hidden;
+  padding: 1.25rem 1.25rem 1.25rem 1.5rem;
+}
+
+.metrics-card__bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: rgba(0, 210, 255, 0.5); /* default: primary tone */
+  transition: background 0.3s;
+}
+
+.metrics-card--warn .metrics-card__bar {
+  background: #f4b942;
+}
+
+.metrics-card--warn .metrics-card__value {
+  color: #f4b942;
+}
+
+.metrics-card--critical .metrics-card__bar {
+  background: #ffb4ab;
+}
+
+.metrics-card--critical .metrics-card__value {
+  color: #ffb4ab;
+}
+
+.metrics-table th {
+  user-select: none;
+}
+
+.metrics-table th:hover {
+  color: #a5e7ff;
+}
+
+/* ── Sparkline ────────────────────────────────────────── */
+.metrics-card-sparkline {
+  height: 40px;
+  width: 100%;
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.metrics-card-sparkline .metrics-sparkline__svg {
+  width: 100%;
+  height: 40px;
+  display: block;
+}
+
+.metrics-card-sparkline .metrics-sparkline__empty {
+  font-size: 0.6rem;
+  color: rgba(148, 163, 184, 0.5);
+  letter-spacing: 0.05em;
+  align-self: center;
+}
+
+/* ── Time Range Toggle ────────────────────────────────── */
+.metrics-time-range-group {
+  display: flex;
+  gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.metrics-time-range-btn {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.7);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.metrics-time-range-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+}
+
+.metrics-time-range-btn--active {
+  background: rgba(74, 144, 226, 0.2);
+  color: #4a90e2;
+}
+
 /* ── Responsive ───────────────────────────────────────── */
 @media (max-width: 1024px) {
   .split-inspector {

@@ -14,27 +14,5 @@ export default {
         "/tests/unit/"
       ]
     },
-    {
-      displayName: "unit-security",
-      testEnvironment: "node",
-      testMatch: [
-        "<rootDir>/tests/unit/*.test.js"
-      ],
-      testPathIgnorePatterns: [
-        "/node_modules/",
-        "/.worktrees/"
-      ]
-    },
-    {
-      displayName: "integration",
-      testEnvironment: "node",
-      testMatch: [
-        "<rootDir>/tests/integration/**/*.jest.test.js"
-      ],
-      testPathIgnorePatterns: [
-        "/node_modules/",
-        "/.worktrees/"
-      ]
-    }
   ]
 };

@@ -2,7 +2,7 @@
 title: "First Memory Flow"
 date: 2026-03-13
 author: 최진호
-updated: 2026-04-16
+updated: 2026-04-20
 ---
 
 # First Memory Flow
@@ -65,6 +65,30 @@ curl -s -X POST http://localhost:57332/mcp \
 
 기대 결과:
 - 조금 전에 저장한 파편이 결과에 포함된다.
+
+### sparse fields로 필요한 필드만 조회 (v2.11.0 H2)
+
+`fields` 파라미터를 지정하면 응답 크기를 줄이고 필요한 필드만 받을 수 있다.
+
+```bash
+curl -s -X POST http://localhost:57332/mcp \
+  -H "Authorization: Bearer change-me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "tools/call",
+    "params": {
+      "name": "recall",
+      "arguments": {
+        "topic": "first-run",
+        "fields": ["id", "content", "importance"]
+      }
+    }
+  }'
+```
+
+`fields`에 지정하지 않은 필드는 응답에서 생략된다. 검색 내부 처리(L1/L2/RRF)는 전체 필드를 유지하며, 최종 응답 직전에 pick 처리된다.
 
 ## 3. context
 

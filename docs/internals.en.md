@@ -2,9 +2,18 @@
 
 ## MemoryManager (Orchestration Layer)
 
-In v2.5.2, MemoryManager was reduced from 1,790 lines to 904 lines, and as of v2.6.0 it is at 1,051 lines with CBR/depth filter additions. It functions as the orchestration layer between tool handlers and sub-modules. Core logic for each operation is delegated to dedicated modules, while MemoryManager handles only dependency injection and method routing.
+In v2.5.2, MemoryManager was reduced from 1,790 lines to 904 lines. In v2.10.0 (Phase 5-B), it was finally decomposed into a 259-line thin facade. Business logic is delegated to 4 processors under `lib/memory/processors/`.
 
-**Decomposed modules:**
+**v2.10.0 decomposition result:**
+
+| Processor | Delegated operations | Lines |
+|-----------|---------------------|-------|
+| `MemoryRememberer` | `remember()`, `batchRemember()` | ~695 |
+| `MemoryRecaller` | `recall()`, `context()` | ~405 |
+| `MemoryReflector` | `reflect()` | ~89 |
+| `MemoryLinker` | `link()`, `forget()`, `amend()` | ~80 |
+
+**Legacy decomposed modules (independent of facade):**
 
 | Module | Delegated to | Role |
 |--------|-------------|------|
@@ -14,9 +23,55 @@ In v2.5.2, MemoryManager was reduced from 1,790 lines to 904 lines, and as of v2
 | `QuotaChecker` | `remember()` entry | Per-API-key fragment quota (fragment_limit) check |
 | `RememberPostProcessor` | After `remember()` completes | Embedding generation, morpheme indexing, auto-linking, assertion check, temporal linking, evaluation queue enqueue, ProactiveRecall pipeline. ProactiveRecall logic included -- creates automatic `related_to` links with fragments sharing keyword overlap (>=50%) on remember() |
 
+**Facade constructor flow:** Initializes 20 shared objects → injects into 4 processors via DI → calls `_installSharedSync()`. All 15 public methods are implemented as single-line delegations.
+
+**_installSharedSync:** Wraps each shared property setter on the facade (store, index, factory, etc.) with `Object.defineProperty`. A single assignment like `mm.store = stub` is automatically propagated to the facade and all processors (test DI compatibility).
+
 **Delegation pattern:** Each module receives required dependencies (store, index, factory, bound methods, etc.) through its constructor. MemoryManager binds self-referencing methods in its constructor (`this.recall.bind(this)`, `this.remember.bind(this)`) and passes them, so modules never back-reference MemoryManager.
 
 **reflect resolution_status auto-setting:** ReflectProcessor automatically assigns resolution_status to reflect-generated fragments. `errors_resolved` items receive `resolutionStatus: "resolved"`, and `open_questions` items receive `resolutionStatus: "open"`. All reflect-generated fragments also propagate `sessionId` for session-level tracking.
+
+**remember() pipeline structure (v2.11.0):**
+
+```
+remember(params)
+  ├── [NEW v2.11.0] dryRun branch — early return before atomic guard declaration
+  │     params.dryRun === true → computes validationResult without storing
+  │     returns { dryRun: true, wouldStore: true/false, reason, params }
+  ├── atomic guard — atomicRemember && keyId condition
+  ├── QuotaChecker.check() — conditional on !(atomicRemember && keyId)
+  ├── [NEW v2.11.0] idempotency branch — when params.idempotencyKey is present
+  │     FragmentReader.findByIdempotencyKey(key, keyId) lookup
+  │     if existing fragment found → early return { id, idempotent: true }
+  ├── FragmentWriter.insert() — actual fragment storage
+  │     idempotency_key column stores params.idempotencyKey (nullable)
+  └── RememberPostProcessor.run() — embedding/morpheme/link/eval post-processing
+```
+
+The `dryRun` branch is positioned before the atomic guard declaration (before `fragment` variable TDZ). The R12 hotfix (v2.10.1) moved the atomic branch to after the `fragment` declaration, resolving the TDZ. The v2.11.0 dryRun branch follows the same placement.
+
+**recall() pipeline — fields pick position:**
+
+```
+recall(query)
+  ├── L1 Redis in-memory cache (warm path)
+  ├── L2 pgvector embedding similarity
+  ├── L2.5 graph neighbors (fragment_links 1-hop)
+  ├── L3 PostgreSQL full-text search (morpheme)
+  ├── L4 Cross-Encoder Reranker (top 30 from RRF)
+  ├── RRF merge (k=60)
+  ├── token budget truncation (tokenBudget)
+  ├── valid_to filter
+  ├── Phase 2 explanations (ExplanationBuilder.annotate)
+  ├── Phase 5 CBR filter (cbrEligibility.filter, when sq.caseId present)
+  ├── trimmed.map(({ _rrfScore, ...rest }) => rest)  — strip internal scores
+  ├── [NEW v2.11.0] pickFields(query.fields)  — sparse fieldset
+  │     when query.fields is not specified, all fields returned (backward compat)
+  │     L1/L2/RRF cache stages retain full fields; pick is applied only at final return
+  └── SearchEventRecorder.record() — event recording
+```
+
+`pickFields` removes fields outside the 17-item whitelist (`id, content, type, importance, topic, ...`). It is not applied to cache stages (L1 warm hits, RRF intermediate objects) to preserve cache efficiency.
 
 ---
 
@@ -448,3 +503,141 @@ Three hooks execute in order after line 88 in `lib/memory/FragmentSearch.js`:
 ### ConflictResolver.checkAssertionConsistency and validationWarnings Addition
 
 `checkAssertionConsistency` in `lib/memory/ConflictResolver.js` preserves the existing Jaccard pipeline (`JACCARD_THRESHOLD=0.3`, up to 10 fragments within a 7-day window) while adding Phase 3 symbolic polarity conflict results alongside it. Within the `SYMBOLIC_CONFIG.enabled && SYMBOLIC_CONFIG.polarityConflict` guard, `ClaimConflictDetector.detectPolarityConflicts` is called; exceptions are logged with logWarn and swallowed. `conflictWith` IDs found in polarity conflicts are merged into the existing `supersedeCandidates`. The return type is extended to a 3-tuple `{ assertionStatus, supersedeCandidates, validationWarnings }`, returning `validationWarnings: []` as an empty array when the flag is off.
+
+---
+
+## Mode System Internals (v2.9.0)
+
+### ModeRegistry Initialization
+
+On server startup, `initModeRegistry()` reads all `lib/memory/modes/*.json` files and populates an in-memory Map. Four presets are shipped by default.
+
+| Preset | Blocked Tools | Use Case |
+|--------|-------------|---------|
+| `recall-only` | remember, batch_remember, amend, forget, link, reflect, memory_consolidate | Read-only clients |
+| `write-only` | recall, context, graph_explore, fragment_history | Write-only pipelines |
+| `onboarding` | memory_consolidate, forget, amend | New user protection |
+| `audit` | remember, batch_remember, amend, forget, link, reflect (requiresMaster=true) | Master-key audit sessions |
+
+Each JSON file schema: `{ name, description, excluded_tools[], fixed_tools[], skill_guide_override?, requiresMaster? }`.
+
+### Session Mode Resolution Priority
+
+`_resolveMode(req, msg, dbDefaultMode, keyId)` determines the mode in this order:
+
+1. `X-Memento-Mode` request header (highest priority) — applied if the value is a registered preset name, otherwise null
+2. `params.mode` field in an `initialize` request
+3. `api_keys.default_mode` DB column (migration-034)
+
+The resolved mode is stored in the session object and reused for all subsequent requests within the same session.
+
+### tools/list Filtering
+
+`filterTools(tools, presetName, isMaster)` removes tools in the `excluded_tools` set and returns the filtered list. Presets with `requiresMaster=true` are only applied to master-key sessions (`keyId === null`); regular API key sessions ignore such presets and receive the full tool list.
+
+When assembling the `get_skill_guide` response, `getSkillGuideOverride(presetName, isMaster)` returns the `skill_guide_override` string from the preset. If present, this overrides the default skill guide text.
+
+---
+
+## RecallSuggestionEngine Internals (v2.9.0)
+
+`lib/memory/RecallSuggestionEngine.js`. Called after `MemoryManager.recall()` completes in a fail-open manner. On exception, returns null so the recall response itself is unaffected.
+
+The engine injects a `_suggestion` field into the recall response as a non-invasive hint. Four rules are evaluated in priority order; the first match returns immediately (no duplicate suggestions).
+
+| Rule Code | Detection Condition | Recommended Tool |
+|-----------|-------------------|-----------------|
+| `repeat_query` | Same keyword query type ≥3 times within 5 minutes | reconstruct_history or graph_explore |
+| `empty_result_no_context` | 0 results + no contextText | recall (add contextText) |
+| `large_limit_no_budget` | limit ≥ 50 + no tokenBudget | recall (add tokenBudget) |
+| `no_type_filter_noisy` | no type filter + total fragments > 100 | recall (add type filter) |
+
+The `repeat_query` rule queries the `search_events` table for events in the past 5 minutes (written by `SearchEventRecorder`). The `no_type_filter_noisy` rule counts `valid_to IS NULL` rows in the `fragments` table.
+
+---
+
+## Affective Tagging Internals (v2.9.0)
+
+`fragments.affect` column (migration-034-v2.16.0-bundle). Allowed enum: `neutral | frustration | confidence | surprise | doubt | satisfaction`. Default: `neutral`.
+
+- **Write path**: `FragmentWriter` calls `sanitizeAffect(value)` to coerce any value outside the allowed enum to `neutral` before INSERT/UPDATE.
+- **Search filter**: `FragmentReader` search methods accept an `affect` parameter. A single string applies `= $N`; an array applies `= ANY($N::text[])`.
+- **Index**: `idx_frag_affect` partial index (`affect IS NOT NULL AND affect != 'neutral'`) indexes only non-neutral values (the minority), keeping index size minimal while preserving query performance for filtered searches.
+
+---
+
+## Tool Meta Registry Internals (v2.9.0)
+
+Each MCP tool definition now includes a `meta` field, automatically included in `tools/list` responses.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `capabilities` | string[] | Functional labels describing what the tool does |
+| `riskLevel` | `"low"` \| `"medium"` \| `"high"` | Risk indicator for client UI |
+| `requiresMaster` | boolean | Whether the tool requires a master key |
+| `beta` | boolean | Whether the tool is experimental |
+| `idempotent` | boolean | Whether the tool is safe to retry |
+
+The `GET /openapi.json` endpoint also reflects this metadata. Clients can use `riskLevel` to show confirmation prompts, or use `requiresMaster` to route calls to audit logs.
+
+---
+
+## Token-Based Session Reuse Internals (v2.9.0)
+
+When the same Bearer token is used for consecutive `initialize` requests, the server reuses the existing active session instead of creating a new one.
+
+**Cache key derivation (`deriveTokenKey`):**
+
+```
+hash = sha256(bearer_token).hex[:16]
+tokenKey = "{keyId|'master'}:{hash}"
+Redis key = "token_session:{tokenKey}"
+```
+
+The raw token is never stored; only the sha256 truncated hash is used as the key.
+
+**Session reuse flow:**
+
+1. On `initialize`, derive `tokenKey` from the request
+2. `getSessionIdByToken(tokenKey)` → look up existing sessionId in Redis
+3. If a valid session exists, return the same sessionId (no new session created)
+4. If no session or expired, create a new session and call `bindTokenToSession(tokenKey, sessionId, ttlSec)`
+
+Redis key TTL is synchronized with session TTL (default 30-day sliding). When Redis is disabled, token session reuse is inactive and every `initialize` creates a new session.
+
+---
+
+## Local transformers Embedding Pipeline Internals (v2.9.0)
+
+When `EMBEDDING_PROVIDER=transformers` is set, `lib/embeddings/LocalTransformersEmbedder.js` handles embedding generation.
+
+**Initialization flow:**
+
+```
+getLocalEmbedder(modelId, dimensions)
+  → check singleton Map (_singletons)
+  → if absent: new LocalTransformersEmbedder({ modelId, dimensions })
+  → pipeline("feature-extraction", modelId, { dtype: "q8" }) — lazy load
+```
+
+The `@huggingface/transformers` `pipeline()` function is called with `dtype: "q8"`, loading the model in INT8 quantized form to halve memory usage.
+
+**Embedding generation:**
+
+```js
+const output = await this._pipeline(text, { pooling: "mean", normalize: true });
+```
+
+`pooling: "mean"` averages token vectors; `normalize: true` applies L2 normalization. The result is passed through `normalizeL2()` again to correct floating-point drift.
+
+**Shared runtime with Reranker/NLIClassifier:** All three modules use `@huggingface/transformers` but load different pipeline tasks (`feature-extraction` / `text-ranking` / `zero-shot-classification`). The ONNX Runtime instance is shared within the process, so additional memory overhead is minimal.
+
+**Memory budget reference:**
+
+| Component | Model | Size (Q8) |
+|-----------|-------|----------|
+| LocalEmbedder (e5-small) | Xenova/multilingual-e5-small | ~150 MB |
+| LocalEmbedder (e5-base) | Xenova/multilingual-e5-base | ~300 MB |
+| Reranker (minilm) | Xenova/ms-marco-MiniLM-L-6-v2 | ~80 MB |
+| Reranker (bge-m3) | onnx-community/bge-reranker-v2-m3-ONNX | ~280 MB |
+| NLIClassifier | Xenova/mDeBERTa-v3-base-mnli-xnli | ~250 MB |

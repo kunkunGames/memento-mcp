@@ -1,25 +1,30 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 
+/**
+ * Phase 5-B 분해 이후 remember / _supersede 본문은
+ * `lib/memory/processors/MemoryRememberer.js`로 이관됐다.
+ * MemoryManager.prototype.remember는 얇은 위임, _supersede는 facade에 존재하지 않는다.
+ * 따라서 본 스위트는 MemoryRememberer.prototype을 직접 검증한다.
+ */
 describe("remember supersedes parameter", () => {
-  test("MemoryManager.remember이 supersedes 파라미터를 받는다", async () => {
-    const { MemoryManager } = await import("../../lib/memory/MemoryManager.js");
-    const mm = new MemoryManager();
-    const src = mm.remember.toString();
+  test("MemoryRememberer.remember이 supersedes 파라미터를 받는다", async () => {
+    const { MemoryRememberer } = await import("../../lib/memory/processors/MemoryRememberer.js");
+    const src = MemoryRememberer.prototype.remember.toString();
     assert.ok(src.includes("supersedes"), "remember에 supersedes 처리 로직 필수");
   });
 
-  test("MemoryManager._supersede 헬퍼가 존재한다", async () => {
-    const { MemoryManager } = await import("../../lib/memory/MemoryManager.js");
-    const mm = new MemoryManager();
-    assert.strictEqual(typeof mm._supersede, "function", "_supersede 메서드 필수");
+  test("MemoryRememberer._supersede 헬퍼가 존재한다", async () => {
+    const { MemoryRememberer } = await import("../../lib/memory/processors/MemoryRememberer.js");
+    assert.strictEqual(
+      typeof MemoryRememberer.prototype._supersede, "function",
+      "_supersede 메서드 필수"
+    );
   });
 
   test("_supersede가 ConflictResolver.supersede로 위임한다", async () => {
-    const { MemoryManager } = await import("../../lib/memory/MemoryManager.js");
-    const mm = new MemoryManager();
-    /** _supersede는 ConflictResolver.supersede 위임 래퍼 — 소스에 위임 호출이 있어야 한다 */
-    const src = mm._supersede.toString();
+    const { MemoryRememberer } = await import("../../lib/memory/processors/MemoryRememberer.js");
+    const src = MemoryRememberer.prototype._supersede.toString();
     assert.ok(
       src.includes("conflictResolver") && src.includes("supersede"),
       "_supersede는 conflictResolver.supersede 위임 필수"

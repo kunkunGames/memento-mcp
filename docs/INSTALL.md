@@ -80,7 +80,22 @@ psql $DATABASE_URL -f lib/memory/migration-030-search-param-thresholds-key-text.
 psql $DATABASE_URL -f lib/memory/migration-031-content-hash-per-key.sql                  # content_hash 전역 UNIQUE → 테넌트별 partial unique index (v2.7.0)
 psql $DATABASE_URL -f lib/memory/migration-032-fragment-claims.sql                       # fragment_claims 테이블 + tenant 격리 partial unique (v2.8.0 Symbolic Memory Phase 0)
 psql $DATABASE_URL -f lib/memory/migration-033-symbolic-hard-gate.sql                    # api_keys.symbolic_hard_gate 컬럼 (v2.8.0 symbolic hard gate opt-in)
+psql $DATABASE_URL -f lib/memory/migration-034-v2.16.0-bundle.sql                        # api_keys.default_mode + fragments.affect + fragments.idempotency_key (v2.9.0~v2.12.0 단일 번들)
 ```
+
+> **migration-007 재실행**: `EMBEDDING_DIMENSIONS`를 변경하거나 임베딩 제공자를 전환한 경우, `post-migrate-flexible-embedding-dims.js`를 재실행하면 `fragments` 테이블과 `morpheme_dict` 테이블의 벡터 차원이 동시에 갱신된다. (v2.13.0까지 구 경로 `scripts/migration-007-flexible-embedding-dims.js` 심볼릭 링크 유지)
+
+> **migration-034-v2.16.0 CONCURRENTLY 옵션**: migration-034-v2.16.0-bundle은 트랜잭션 내에서 실행되므로 `CREATE UNIQUE INDEX`를 사용한다. 수백만 건 이상의 대규모 운영 테이블에서 잠금 최소화가 필요한 경우, `npm run migrate` 실행 전에 아래 두 문을 수동으로 실행하면 IF NOT EXISTS 가드에 의해 자동 실행 시 안전하게 SKIP된다.
+>
+> ```sql
+> CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_fragments_idempotency_tenant
+>   ON agent_memory.fragments (key_id, idempotency_key)
+>   WHERE idempotency_key IS NOT NULL AND key_id IS NOT NULL;
+>
+> CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_fragments_idempotency_master
+>   ON agent_memory.fragments (idempotency_key)
+>   WHERE idempotency_key IS NOT NULL AND key_id IS NULL;
+> ```
 
 > **rollback 파일 네이밍**: rollback SQL 파일은 `rollback-migration-NNN-*.sql` 형식으로 이름을 지정해야 한다. `migrate.js`의 auto-pickup glob은 `migration-*.sql` 패턴만 인식하므로, `rollback-` 접두어를 붙이면 자동 실행에서 제외된다.
 
@@ -88,6 +103,35 @@ v1.8.0부터 자동 마이그레이션을 지원한다. 위 수동 실행 대신
 
 ```bash
 DATABASE_URL=postgresql://user:pass@host:port/dbname npm run migrate
+```
+
+### v2.9.x → v2.12.0 업그레이드 경로
+
+```bash
+# 1. 의존성 업데이트
+npm install
+
+# 2. 마이그레이션 실행 (migration-034-v2.16.0-bundle 포함)
+npm run migrate
+
+# 3. EMBEDDING_PROVIDER 재검토
+#    provider 변경 또는 EMBEDDING_DIMENSIONS 수정 시:
+#    EMBEDDING_DIMENSIONS=N DATABASE_URL=$DATABASE_URL node scripts/post-migrate-flexible-embedding-dims.js
+#    DATABASE_URL=$DATABASE_URL node scripts/backfill-embeddings.js
+
+# 4. .env 신규 항목 확인
+#    MEMENTO_CLI_REMOTE, MEMENTO_CLI_KEY 추가 여부 검토 (원격 CLI 경유 사용 시)
+
+# 5. 서버 재시작
+node server.js
+```
+
+migration-034-v2.16.0-bundle 인덱스 적용 확인:
+
+```sql
+-- psql 접속 후
+\d agent_memory.fragments
+-- idx_fragments_idempotency_tenant, idx_fragments_idempotency_master 두 인덱스가 보여야 한다.
 ```
 
 `agent_memory.schema_migrations` 테이블에 적용 이력이 기록되며, 미적용 파일만 순서대로 실행된다.
@@ -103,7 +147,7 @@ DATABASE_URL=postgresql://user:pass@host:port/dbname npm run migrate
 ```bash
 # 기본 임베딩(1536차원) 사용 시: migration-007 불필요
 # 2000차원 초과 모델(Gemini gemini-embedding-001 등) 사용 시:
-# EMBEDDING_DIMENSIONS=3072 DATABASE_URL=$DATABASE_URL node scripts/migration-007-flexible-embedding-dims.js
+# EMBEDDING_DIMENSIONS=3072 DATABASE_URL=$DATABASE_URL node scripts/post-migrate-flexible-embedding-dims.js
 
 DATABASE_URL=$DATABASE_URL node scripts/normalize-vectors.js  # 임베딩 L2 정규화 (1회)
 
@@ -141,9 +185,101 @@ CONSOLIDATE_INTERVAL_MS - consolidate 주기 (기본: 3600000 = 1시간)
 ALLOWED_ORIGINS         - CORS 허용 Origin 목록 (쉼표 구분)
 RERANKER_ENABLED        - cross-encoder reranking 활성화 (기본: false)
 RERANKER_MODEL          - in-process 모델 선택: minilm (기본, 영어 전용) 또는 bge-m3 (다국어, 비영어권 권장)
+LLM_PRIMARY             - 주 LLM provider (기본: gemini-cli). gemini-cli, codex, copilot, anthropic 등
+LLM_FALLBACKS           - JSON 배열. 각 원소: {"provider":"anthropic","apiKey":"...","model":"claude-opus-4-6"}
 ```
 
 환경 변수 전체 목록은 [Configuration — 환경 변수](configuration.md#환경-변수) 참조.
+
+---
+
+## 로컬 임베딩 모드 (OpenAI API 키 없는 환경)
+
+OpenAI API 키 없이 `@huggingface/transformers` 기반 로컬 모델로 임베딩을 생성할 수 있다.
+
+### .env 설정
+
+```
+EMBEDDING_PROVIDER=transformers
+EMBEDDING_MODEL=Xenova/multilingual-e5-small
+EMBEDDING_DIMENSIONS=384
+# EMBEDDING_API_KEY 절대 설정하지 말 것 — 데이터 혼합 방지
+```
+
+- `Xenova/multilingual-e5-small`: 약 120MB, 384차원, 한국어/영어 모두 지원
+- `Xenova/multilingual-e5-base`: 약 280MB, 768차원, 정확도 향상
+- `EMBEDDING_PROVIDER=transformers`이면 `EMBEDDING_API_KEY`를 동시에 설정할 수 없다. 설정 시 서버 기동이 차단된다.
+
+### 최초 실행 시 모델 다운로드
+
+처음 서버를 시작하면 HuggingFace Hub에서 모델을 자동 다운로드한다. `Xenova/multilingual-e5-small` 기준 약 120MB이며 네트워크 환경에 따라 수 분이 소요된다. 완료 후 로컬에 캐시되어 재시작 시에는 즉시 로드된다.
+
+```
+[LocalEmbedder] loading model Xenova/multilingual-e5-small (dtype=q8)
+```
+
+### 캐시 경로 (HF_HOME)
+
+기본 캐시 경로: `~/.cache/huggingface`
+
+Docker 배포 시 모델을 볼륨에 마운트하여 재다운로드를 방지한다.
+
+```yaml
+# docker-compose.yml 예시
+volumes:
+  - hf_cache:/root/.cache/huggingface
+environment:
+  - HF_HOME=/root/.cache/huggingface
+```
+
+상세 설정은 [docs/embedding-local.md](embedding-local.md) 참조.
+
+---
+
+## 선택적 의존성
+
+### gemini CLI (기본 LLM provider)
+
+```bash
+npm install -g @google/gemini-cli
+gemini auth login
+```
+
+### Codex CLI (LLM fallback 시)
+
+```bash
+npm install -g @openai/codex
+codex auth login
+```
+
+### Copilot CLI (LLM fallback 시)
+
+```bash
+npm install -g @githubnext/github-copilot-cli
+github-copilot-cli auth
+```
+
+CLI provider를 사용하려면 `LLM_PRIMARY` 또는 `LLM_FALLBACKS`에 `"codex"` / `"copilot"` 값을 설정하면 된다.
+
+---
+
+## 기동 후 검증 체크리스트
+
+서버 기동 후 아래 항목을 순서대로 확인한다.
+
+```bash
+# 1. 헬스 엔드포인트 200 확인
+curl -s http://localhost:57332/health | jq .status
+
+# 2. 임베딩 일관성 검사 결과 확인 (서버 로그)
+# 정상: "consistency check result: PASS"
+# 불일치: EMBEDDING_DIMENSIONS 재검토 후 migration-007 재실행
+
+# 3. CLI 진단
+node bin/memento.js health
+```
+
+`consistency check result: PASS` 로그가 출력되면 임베딩 차원과 DB 벡터가 일치하는 상태다. `FAIL`이 출력되면 `EMBEDDING_DIMENSIONS` 설정과 실제 DB 차원 불일치 — `scripts/post-migrate-flexible-embedding-dims.js`를 재실행한 뒤 서버를 재시작한다.
 
 ## CLI 사용법
 

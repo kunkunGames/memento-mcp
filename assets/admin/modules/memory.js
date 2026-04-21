@@ -9,7 +9,7 @@ import { state }                                         from "./state.js";
 import { api }                                           from "./api.js";
 import { fmt, fmtDate, fmtPct, truncate, loadingHtml }  from "./format.js";
 
-function renderMemoryFilters() {
+export function renderMemoryFilters() {
   const types = ["", "fact", "error", "decision", "procedure", "preference"];
 
   const bar = document.createElement("div");
@@ -120,7 +120,7 @@ function renderMemoryFilters() {
   return bar;
 }
 
-function renderFragmentList(fragments) {
+export function renderFragmentList(fragments) {
   if (!fragments || !fragments.length) {
     const empty = document.createElement("div");
     empty.className = "text-sm text-slate-600 py-8 text-center";
@@ -256,7 +256,7 @@ function renderFragmentList(fragments) {
   return panel;
 }
 
-function renderRetrievalAnalytics(stats) {
+export function renderRetrievalAnalytics(stats) {
   const panel = document.createElement("section");
   panel.className = "glass-panel rounded-sm p-6 border-t border-primary/20";
 
@@ -341,7 +341,7 @@ function renderRetrievalAnalytics(stats) {
   return panel;
 }
 
-function renderAnomalyCards(anomalies) {
+export function renderAnomalyCards(anomalies) {
   if (!anomalies) return document.createDocumentFragment();
 
   const panel = document.createElement("section");
@@ -393,7 +393,7 @@ function renderAnomalyCards(anomalies) {
   return panel;
 }
 
-function renderRecentEventsChart() {
+export function renderRecentEventsChart() {
   const panel = document.createElement("section");
   panel.className = "glass-panel rounded-sm p-6";
 
@@ -471,7 +471,7 @@ function renderRecentEventsChart() {
   return panel;
 }
 
-function renderFragmentInspector(fragment) {
+export function renderFragmentInspector(fragment) {
   if (!fragment) return document.createDocumentFragment();
 
   const panel = document.createElement("section");
@@ -516,7 +516,7 @@ function renderFragmentInspector(fragment) {
   return panel;
 }
 
-function renderPagination() {
+export function renderPagination() {
   const total   = state.memoryPages;
   const current = state.memoryPage;
   if (total <= 1) return document.createDocumentFragment();

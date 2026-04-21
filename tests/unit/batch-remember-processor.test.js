@@ -3,6 +3,7 @@
  *
  * 작성자: 최진호
  * 작성일: 2026-04-05
+ * 수정일: 2026-04-19 (Phase B quota 재검증, session_id 전파, 부분 할당량 케이스 추가)
  *
  * store, index, factory를 mock하여 BatchRememberProcessor.process()의
  * Phase A(검증), Phase B(INSERT), Phase C(후처리)를 검증한다.
@@ -40,7 +41,7 @@ function makeMockFactory() {
         valid_from        : new Date().toISOString(),
         is_anchor         : false,
         context_summary   : null,
-        session_id        : null,
+        session_id        : item.session_id || null,
         workspace         : null,
         case_id           : null,
         goal              : null,
@@ -64,13 +65,26 @@ function makeMockStore() {
 /**
  * INSERT 성공하는 DB client mock 생성.
  * opts.insertFn으로 개별 INSERT 동작을 커스터마이즈할 수 있다.
+ * opts.quotaRows로 api_keys/fragments 카운트 응답을 제어한다.
  */
 function makeMockClient(opts = {}) {
-  const insertFn = opts.insertFn || ((sql, params) => ({ rows: [{ id: params[0] }] }));
+  const insertFn  = opts.insertFn  || ((sql, params) => ({ rows: [{ id: params[0] }] }));
+  const quotaRows = opts.quotaRows || null;
+
   return {
     query: mock.fn(async (sql, params) => {
       if (sql === "BEGIN" || sql === "COMMIT" || sql === "ROLLBACK") return { rows: [] };
       if (typeof sql === "string" && sql.startsWith("SET LOCAL")) return { rows: [] };
+
+      /** Phase B quota: FOR UPDATE on api_keys */
+      if (quotaRows && typeof sql === "string" && sql.includes("FOR UPDATE")) {
+        return { rows: [quotaRows.keyRow] };
+      }
+      /** Phase B quota: COUNT fragments */
+      if (quotaRows && typeof sql === "string" && sql.includes("COUNT(*)") && sql.includes("fragments")) {
+        return { rows: [quotaRows.countRow] };
+      }
+
       if (typeof sql === "string" && sql.includes("INSERT INTO")) return insertFn(sql, params);
       return { rows: [] };
     }),
@@ -84,11 +98,12 @@ function makeMockPool(client) {
 
 /* ── 파편 샘플 ── */
 
-function validItem(i = 0) {
+function validItem(i = 0, extra = {}) {
   return {
     content: `This is a valid test fragment number ${i} with enough words`,
     topic  : "test-topic",
     type   : "fact",
+    ...extra
   };
 }
 
@@ -264,4 +279,97 @@ describe("BatchRememberProcessor", () => {
 
     assert.equal(created[0].workspace, "ws-1");
   });
+
+  /* ── 신규 케이스 (2026-04-19 추가) ── */
+
+  it("session_id가 파편 레벨로 전파된다", async () => {
+    const factory = makeMockFactory();
+    const created = [];
+    const origCreate = factory.create.bind(factory);
+    factory.create = (item) => {
+      const f = origCreate(item);
+      created.push(f);
+      return f;
+    };
+
+    processor = new BatchRememberProcessor({
+      store  : makeMockStore(),
+      index  : makeMockIndex(),
+      factory,
+    });
+    processor.setPool(makeMockPool(makeMockClient()));
+
+    const fragments = [validItem(0, { session_id: "sess-xyz" })];
+    await processor.process({ fragments });
+
+    assert.equal(created[0].session_id, "sess-xyz");
+  });
+
+  it("agentId가 커스텀 값으로 전달되면 SET LOCAL에 반영된다", async () => {
+    const fragments = [validItem(0)];
+    await processor.process({ fragments, agentId: "agent-test-01" });
+
+    const setCalls = mockClient.query.mock.calls
+      .map(c => c.arguments[0])
+      .filter(sql => typeof sql === "string" && sql.includes("current_agent_id"));
+    assert.ok(setCalls.some(sql => sql.includes("agent-test-01")));
+  });
+
+  it("결과 배열 길이가 입력 fragments 길이와 동일하다", async () => {
+    const fragments = [validItem(0), validItem(1), validItem(2)];
+    const result    = await processor.process({ fragments });
+    assert.equal(result.results.length, fragments.length);
+  });
+
+  it("inserted + skipped 합계가 총 파편 수와 동일하다", async () => {
+    const fragments = [
+      { content: "x", topic: "t", type: "fact" },
+      validItem(0),
+      validItem(1),
+    ];
+    const result = await processor.process({ fragments });
+    assert.equal(result.inserted + result.skipped, fragments.length);
+  });
+
+  it("200개 경계(정확히 MAX_BATCH)는 거부하지 않는다", async () => {
+    const fragments = Array.from({ length: 200 }, (_, i) => validItem(i));
+    const result    = await processor.process({ fragments });
+    assert.equal(result.inserted, 200);
+  });
+
+  it("Phase B: BEGIN/COMMIT이 트랜잭션 쌍으로 호출된다", async () => {
+    const fragments = [validItem(0)];
+    await processor.process({ fragments });
+
+    const sqls = mockClient.query.mock.calls.map(c => c.arguments[0]);
+    assert.ok(sqls.includes("BEGIN"),  "BEGIN 누락");
+    assert.ok(sqls.includes("COMMIT"), "COMMIT 누락");
+  });
+
+  it("INSERT 예외 발생 시 전체 트랜잭션은 ROLLBACK 없이 부분 실패로 처리된다", async () => {
+    let callCount = 0;
+    const allFailClient = makeMockClient({
+      insertFn: (_sql, _params) => {
+        callCount++;
+        throw new Error("insert error");
+      }
+    });
+
+    processor = new BatchRememberProcessor({
+      store  : makeMockStore(),
+      index  : makeMockIndex(),
+      factory: makeMockFactory(),
+    });
+    processor.setPool(makeMockPool(allFailClient));
+
+    const fragments = [validItem(0), validItem(1)];
+    const result    = await processor.process({ fragments });
+
+    assert.equal(result.inserted, 0);
+    assert.equal(result.skipped, 2);
+    for (const r of result.results) {
+      assert.equal(r.success, false);
+    }
+  });
+
 });

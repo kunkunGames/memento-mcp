@@ -193,3 +193,46 @@ export function loadAdmin() {
 }
 
 export { flatQuery };
+
+/**
+ * Node.js global에 DOM mock을 주입한다.
+ * modules/*.js를 직접 import하는 테스트에서 import 전에 호출해야 한다.
+ * 멱등적 — 이미 설정되어 있으면 재할당하지 않는다.
+ */
+export function setupDom() {
+  if (global.document) return;
+
+  global.document = {
+    createElement(tag) { return new MockElement(tag); },
+    createElementNS(_ns, tag) { return new MockElement(tag); },
+    createDocumentFragment() { return new MockElement("fragment"); },
+    createTextNode(text) { return { textContent: text, nodeType: 3 }; },
+    getElementById() { return null; },
+    querySelector() { return null; },
+    addEventListener() {},
+    body: new MockElement("body")
+  };
+
+  global.window      = { location: { search: "" } };
+  global.sessionStorage = {
+    getItem:    () => null,
+    setItem:    () => {},
+    removeItem: () => {}
+  };
+  global.Node        = MockElement;
+  global.HTMLElement = MockElement;
+  /* navigator는 Node.js v24에서 read-only getter이므로 defineProperty 사용 */
+  try {
+    Object.defineProperty(global, "navigator", {
+      value: { clipboard: { writeText: async () => {} } },
+      writable: true, configurable: true
+    });
+  } catch (_) { /* 이미 정의된 경우 무시 */ }
+  global.fetch       = async () => ({
+    ok: true, status: 200,
+    headers: { get: () => "application/json" },
+    json: async () => ({})
+  });
+  global.setTimeout  = (fn) => fn();
+  global.clearTimeout = () => {};
+}

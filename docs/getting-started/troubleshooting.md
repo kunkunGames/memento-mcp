@@ -2,7 +2,7 @@
 title: "Troubleshooting"
 date: 2026-03-13
 author: 최진호
-updated: 2026-03-13
+updated: 2026-04-20
 ---
 
 # Troubleshooting
@@ -147,3 +147,60 @@ psql "$DATABASE_URL" -c "SELECT 1;"
 해결 방법:
 - 비밀번호에 특수문자가 있으면 URL 인코딩이 필요한지 확인한다.
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`가 실제 값과 일치하는지 점검한다.
+
+## 9. `ReferenceError: Cannot access 'fragment' before initialization`
+
+문제:
+`remember` 호출 시 TDZ(Temporal Dead Zone) 에러 발생. 원격 서버(`memento.anchormind.net`)에서도 동일 증상이 보고됐다.
+
+원인:
+v2.10.0 이하에서 `remember()` 본문의 atomic 분기가 `fragment` 변수 선언보다 앞에 위치하는 TDZ 버그.
+
+해결 방법:
+v2.10.1 이상으로 업그레이드한다. R12 핫픽스에서 해당 TDZ가 제거됐다.
+
+```bash
+npm update memento-mcp
+# 또는 소스 설치 시
+git pull
+npm install
+```
+
+## 10. migration-034-v2.16.0-bundle 적용 실패 (CONCURRENTLY 에러)
+
+문제:
+`npm run migrate` 실행 시 migration-034-v2.16.0-bundle 단계에서 에러 발생.
+
+원인:
+`CREATE INDEX CONCURRENTLY`는 트랜잭션 블록 안에서 실행할 수 없다. 마이그레이션 스크립트가 트랜잭션을 사용하는 환경에서 CONCURRENTLY 구문이 실패한다.
+
+해결 방법:
+트랜잭션 외부에서 수동으로 인덱스를 생성한 뒤 migration-034-v2.16.0-bundle을 완료로 표시한다.
+
+```sql
+-- 반드시 BEGIN/COMMIT 없이 독립 실행
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_fragments_idempotency_key_tenant
+  ON agent_memory.fragments (key_id, idempotency_key)
+  WHERE idempotency_key IS NOT NULL AND key_id IS NOT NULL;
+
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_fragments_idempotency_key_master
+  ON agent_memory.fragments (idempotency_key)
+  WHERE idempotency_key IS NOT NULL AND key_id IS NULL;
+
+-- 완료 표시
+INSERT INTO agent_memory.schema_migrations (version) VALUES ('036')
+  ON CONFLICT DO NOTHING;
+```
+
+주의: 위 명령은 `psql`에서 직접 실행하거나 트랜잭션 없이 실행해야 한다. `BEGIN;` 블록 안에서 실행하면 오류가 반복된다.
+
+## 11. recall 응답의 `_searchEventId` 필드를 찾을 수 없음
+
+문제:
+v2.11.0 이후 recall 응답에서 `_searchEventId` 등의 top-level 필드가 `_meta` 내부로 이동했다.
+
+원인:
+v2.11.0 H1에서 응답 메타데이터가 `_meta: { searchEventId, hints, suggestion }` 래퍼로 통합됐다.
+
+해결 방법:
+`_meta.searchEventId`로 접근한다. 기존 top-level 필드는 v2.11.0~v2.12.x 기간 동안 mirror로 유지되지만, v2.12.0 이후 제거될 예정이다. 클라이언트 코드를 `_meta` 내부 필드로 전환한다.

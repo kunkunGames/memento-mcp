@@ -1,16 +1,25 @@
 #!/usr/bin/env node
 /**
- * 기존 노이즈 파편 정리 스크립트
+ * cleanup-noise.js — agent_memory.fragments 저품질 파편 탐지·삭제
  *
- * 사용법:
- *   node scripts/cleanup-noise.js --dry-run      # 삭제 대상 미리보기 (기본값)
- *   node scripts/cleanup-noise.js --execute       # 실제 삭제
- *   node scripts/cleanup-noise.js --include-nli   # NLI 재귀 쓰레기 포함
+ * 작성자: 최진호
+ * 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
  *
- * 삭제 대상 (보수적 AND 조건):
- *   1. 초단문 (<10자, access_count<=1, 앵커 아님)
- *   2. 빈 세션 요약 ("파편 0개 처리" 포함, importance<0.3)
- *   3. NLI 재귀 쓰레기 (--include-nli 시에만, "[모순 해결]" 접두사, access_count<=1, importance<0.3)
+ * 목적: DB에 축적된 초단문, 빈 세션 요약, NLI 재귀 쓰레기 등 노이즈 파편을
+ *       보수적 AND 조건으로 일괄 제거한다.
+ * 호출 조건: recall 품질 저하 또는 context 토큰 예산에 노이즈 파편이 영향을 준다고 판단될 때
+ * 빈도: 조건부. 필요 시 월 1회 기준
+ * 의존: DATABASE_URL
+ * 관련 문서: docs/operations/maintenance.md#cleanup-noise
+ *
+ * 삭제 범주:
+ *   1. 초단문 — content < 10자 AND access_count <= 1 AND is_anchor IS NOT TRUE
+ *   2. 빈 세션 요약 — type='fact' AND content LIKE '%파편 0개 처리%' AND importance < 0.3
+ *   3. NLI 재귀 쓰레기 — content LIKE '[모순 해결]%' AND access_count <= 1 AND importance < 0.3
+ *                         (--include-nli 플래그 지정 시에만 활성)
+ *
+ * 사용: node scripts/cleanup-noise.js [--dry-run] [--execute] [--include-nli]
+ *       기본 실행은 --dry-run 모드(삭제 없음). 실제 삭제는 --execute 필수.
  */
 import pg from "pg";
 

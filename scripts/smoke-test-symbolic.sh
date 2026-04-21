@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
-# v2.8.0 Symbolic Memory end-to-end smoke test
+# smoke-test-symbolic.sh — v2.8.0 Symbolic Memory end-to-end smoke 검증
 #
 # 작성자: 최진호
 # 작성일: 2026-04-16
+# 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
+#
+# 목적: v2.8.0 Symbolic Memory의 hard gate, validation_warnings, recall explanations,
+#       /metrics 노출을 HTTP/DB 레벨에서 end-to-end 검증한다.
+# 호출 조건: MEMENTO_SYMBOLIC_* 플래그 전환 후 기능 동작 확인
+# 빈도: 조건부 (Symbolic 플래그 변경 시)
+# 의존: .env, 실행 중인 서버(PORT), PostgreSQL, python3
+# 관련 문서: docs/operations/symbolic-hard-gate.md, docs/operations/maintenance.md
 #
 # 사전 조건:
 #   - .env 파일이 프로젝트 루트에 존재

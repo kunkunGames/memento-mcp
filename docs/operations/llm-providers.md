@@ -103,9 +103,161 @@ redis-cli --scan --pattern "llm:cb:*" | xargs redis-cli del
 # in-memory인 경우 서버 재시작
 ```
 
+## 통합 테스트
+
+LLM provider 관련 E2E 통합 테스트는 [tests/integration/README.md](../../tests/integration/README.md)가 단일 출처(source of truth)다.
+환경변수 가드 목록, 수동 실행 명령, 전제 조건 전체를 해당 문서에서 관리한다.
+
+이 문서와 관련된 환경변수 가드 요약:
+
+| 테스트 파일 | 활성화 변수 |
+|-|-|
+| `llm-cli-smoke.test.js` | `E2E_LLM_CLI=1` |
+| `llm-timeout.test.js` | `E2E_LLM_TIMEOUT=1` |
+| `llm-chain-real.test.js` | `E2E_LLM_CHAIN=1` |
+| `morpheme-llm-real.test.js` | `E2E_MORPHEME=1` |
+
+세션 토큰 재사용(`E2E_SESSION_REUSE=1`) 등 LLM 비관련 E2E 테스트도 동일 README에 기록되어 있다.
+
 ## 알려진 제약
 
 - 프롬프트 캐싱 미지원 (Anthropic cache_control, OpenAI prompt caching 등 — 후속 과제)
 - Structured output / tool calling 미지원 — parseJsonResponse heuristic으로 처리
 - Token budget cap enforcement는 provider 응답 수신 후 누적 — 선제 차단 아님
 - llmText export 없음 — 내부 caller가 전부 JSON 응답 사용
+
+---
+
+## Provider Contract
+
+작성일: 2026-04-19
+
+### 계약 정의
+
+`lib/llm/LlmProvider.js`의 `LlmProviderContract` typedef가 모든 provider의 공개 계약을 명시한다. 필수 메서드는 다음과 같다.
+
+| 메서드 | 시그니처 | 에러 계약 |
+|-|-|-|
+| isAvailable | () => Promise<boolean> | 항상 resolve. 가용하지 않으면 false |
+| callText | (prompt, options?) => Promise<string> | 실패 시 throw. 빈 문자열 반환 금지 |
+| callJson | (prompt, options?) => Promise<any> | callText 파싱 실패 시 throw |
+| isCircuitOpen | () => Promise<boolean> | 항상 resolve |
+| recordFailure | () => Promise<void> | 항상 resolve |
+| recordSuccess | () => Promise<void> | 항상 resolve |
+
+에러 타입: `LlmRateLimitError`(429), `LlmAuthError`(401/403), `LlmFatalError`(복구 불가), 그 외 일반 Error.
+
+### 상속 결정 가이드
+
+#### LlmProvider를 직접 상속해야 하는 경우
+
+- POST /v1/chat/completions 이외의 HTTP 스키마를 사용할 때
+  - Anthropic: POST /v1/messages, x-api-key 헤더, content[].text 응답
+  - Google Gemini API: POST /v1beta/models/{model}:generateContent, API 키 URL 파라미터
+  - Cohere: POST /v1/chat, preamble 필드, 최상위 text 응답
+- HTTP를 사용하지 않는 stdio / CLI 실행 경로일 때
+  - GeminiCliProvider, CodexCliProvider, CopilotCliProvider
+
+이 경우 callText 또는 callJson을 직접 구현하고 circuit breaker 호출을 수동으로 포함해야 한다.
+
+#### OpenAICompatibleProvider를 상속해야 하는 경우
+
+POST /v1/chat/completions 엔드포인트를 그대로 사용하며 baseUrl과 extraHeaders만 다를 때 이 클래스를 상속한다.
+해당하는 provider: OpenAI, Groq, OpenRouter, xAI, vLLM, DeepSeek, Mistral, ZAI.
+
+OpenAICompatibleProvider를 상속하면 callText 구현이 자동으로 제공된다. 서브클래스는 생성자에서 name, baseUrl, apiKey, model, extraHeaders를 설정하는 것 외에 추가 코드가 거의 불필요하다.
+
+주의: OpenAICompatibleProvider 상속 방식은 v2.10.0에서 composition 전환 예정이다. v2.9.x 동안은 기존 상속 구조 유지.
+
+### 현재 provider 상속 분류
+
+| Provider | 상속 클래스 | 경로 |
+|-|-|-|
+| GeminiCliProvider | LlmProvider | stdio, gemini CLI 바이너리 |
+| CodexCliProvider | LlmProvider | stdio, codex CLI 바이너리 |
+| CopilotCliProvider | LlmProvider | stdio, gh copilot CLI 바이너리 |
+| AnthropicProvider | LlmProvider | POST /v1/messages, 고유 스키마 |
+| GoogleGeminiProvider | LlmProvider | POST /v1beta/...generateContent, 고유 스키마 |
+| CohereProvider | LlmProvider | POST /v1/chat, 고유 스키마 |
+| OllamaProvider | LlmProvider | POST /api/chat, Ollama 전용 스키마 |
+| OpenAIProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+| GroqProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+| OpenRouterProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+| XaiProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+| VllmProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+| DeepSeekProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+| MistralProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+| ZaiProvider | OpenAICompatibleProvider | POST /v1/chat/completions |
+
+### 외부 custom provider 작성 예시
+
+POST /v1/chat/completions 호환 엔드포인트를 가진 서비스에 연결하는 경우:
+
+```javascript
+import { OpenAICompatibleProvider } from "memento-mcp/lib/llm/providers/OpenAICompatibleProvider.js";
+
+export class MyApiProvider extends OpenAICompatibleProvider {
+  constructor(config) {
+    super({
+      ...config,
+      name   : "my-api",
+      baseUrl: config.baseUrl || "https://api.example.com/v1"
+    });
+  }
+}
+```
+
+고유 HTTP 스키마를 가진 서비스에 연결하는 경우:
+
+```javascript
+import { LlmProvider }      from "memento-mcp/lib/llm/LlmProvider.js";
+import { fetchWithTimeout } from "memento-mcp/lib/llm/util/fetch-with-timeout.js";
+
+export class MyCustomProvider extends LlmProvider {
+  constructor(config) {
+    super({ ...config, name: "my-custom" });
+    this.apiKey  = config.apiKey;
+    this.baseUrl = config.baseUrl;
+  }
+
+  async isAvailable() {
+    return Boolean(this.apiKey && this.config.model);
+  }
+
+  /**
+   * @param {string}  prompt
+   * @param {object}  [options={}]
+   * @returns {Promise<string>}
+   */
+  async callText(prompt, options = {}) {
+    if (await this.isCircuitOpen()) throw new Error("my-custom: circuit breaker open");
+
+    try {
+      const res = await fetchWithTimeout(
+        `${this.baseUrl}/completions`,
+        {
+          method : "POST",
+          headers: { "Authorization": `Bearer ${this.apiKey}`, "Content-Type": "application/json" },
+          body   : JSON.stringify({ prompt, model: options.model || this.config.model })
+        },
+        options.timeoutMs ?? 30000
+      );
+
+      if (!res.ok) {
+        await this.recordFailure();
+        throw new Error(`my-custom HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const text = data.text ?? "";
+      if (!text) { await this.recordFailure(); throw new Error("my-custom: empty response"); }
+
+      await this.recordSuccess();
+      return text;
+    } catch (err) {
+      await this.recordFailure();
+      throw err;
+    }
+  }
+}
+```

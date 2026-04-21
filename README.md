@@ -62,6 +62,8 @@ npm run migrate
 node server.js
 ```
 
+OpenAI API 없이 로컬 임베딩을 사용하려면 `.env`에 `EMBEDDING_PROVIDER=transformers`를 추가한다. 기동 시 `Xenova/multilingual-e5-small` 모델을 자동으로 다운로드한다. 단, OpenAI 임베딩으로 이미 저장된 데이터와 혼용하면 차원이 불일치하므로 새로 마이그레이션된 DB에서만 사용할 것.
+
 서버가 뜬 뒤에는 [First Memory Flow](docs/getting-started/first-memory-flow.md)로 동작을 검증한다.
 
 다른 플랫폼 설정은 위 [호환 플랫폼](#호환-플랫폼) 테이블 참조.
@@ -156,6 +158,82 @@ Claude.ai Web / ChatGPT 연동은 OAuth를 사용한다. 발급한 API 키(`mmcp
 | OAuth 연동 | RFC 7591 Dynamic Client Registration, Claude.ai / ChatGPT Web 통합 지원 |
 | **Workspace 격리** | 같은 키 내에서도 프로젝트·직종·클라이언트 단위로 기억을 분리. `api_keys.default_workspace`로 자동 태깅, 검색 시 자동 필터. |
 
+### v3.0.0 신규 기능 — CLI/API Enhancement Phase 2 (v2.12.0 통합)
+
+원격 CLI, RateLimit 헤더, dryRun, _meta 래퍼, sparse fields, idempotency 6가지 기능을 추가했다.
+
+- 원격 MCP 경유 CLI: `--remote URL --key KEY` 전역 플래그로 로컬 서버 없이 원격 Memento 서버를 직접 조작한다. `MEMENTO_CLI_REMOTE` / `MEMENTO_CLI_KEY` 환경변수로도 지정 가능.
+- X-RateLimit 헤더: 모든 API 응답에 `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Resource` 헤더를 포함한다. master key 또는 limit=null 설정 시 헤더를 생략한다. 10초 TTL 모듈 캐시로 DB 조회를 최소화한다.
+- dryRun 파라미터: remember / link / forget / amend 4개 MCP 도구에 `dryRun: true` 파라미터를 추가했다. 실제 DB 변경 없이 예상 결과만 반환하며 부작용을 완전히 건너뛴다. 기본값 false.
+
+CLI 사용 예시:
+
+```bash
+# 원격 서버에서 recall (환경변수 방식)
+MEMENTO_CLI_REMOTE=https://memento.anchormind.net/mcp MEMENTO_CLI_KEY=mmcp_xxx memento-mcp recall "query"
+
+# 원격 서버에서 recall (플래그 방식)
+memento-mcp recall "query" --remote https://memento.anchormind.net/mcp --key mmcp_xxx
+
+# 표 형식 출력, 결과 5건
+memento-mcp recall "query" --format table --limit 5
+
+# idempotency key로 중복 저장 방지
+memento-mcp remember "내용" --topic 프로젝트명 --idempotency-key k1
+```
+
+### v3.0.0 신규 기능 — CLI/API Enhancement Phase 1 (v2.11.0 통합)
+
+H 그룹: _meta 래퍼, sparse fields, CLI 개선, idempotency.
+
+- _meta 래퍼: recall / context 응답에 `_meta: { searchEventId, hints, suggestion }` 필드를 추가했다. 기존 top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드는 v3.1.0 제거 예정이므로 `_meta.*` 경로를 사용할 것.
+- sparse fields: recall 호출 시 `fields` 배열로 반환 필드를 제한할 수 있다. 화이트리스트 17개: id / content / type / topic / keywords / importance / created_at / access_count / confidence / linked / explanations / workspace / context_summary / case_id / valid_to / affect / ema_activation.
+- CLI `--format`: `--format table|json|csv` 플래그로 출력 형식을 선택한다. TTY 환경에서는 기본 table, 파이프 환경에서는 자동으로 json. `--json`은 `--format json` 별칭.
+- CLI `--help`: 11개 서브명령 각각에 `--help` / `-h` 플래그 지원.
+- idempotencyKey: remember / batchRemember에 `idempotencyKey` 파라미터 추가. 같은 key_id 범위 내 중복 저장을 방지하며 최대 128자. migration-034-v2.16.0-bundle으로 `fragments.idempotency_key` 컬럼 추가.
+
+### v3.0.0 신규 기능 — Admin Metrics Dashboard (v2.16.0 통합)
+
+- Admin Console 메트릭 메뉴: Prometheus 8 카드(Active Sessions / Auth Denied / RBAC Denied / Tenant Blocked / RPC p50/p99 / Tool Errors / Symbolic Gate Blocked / OAuth Tokens) + 도구별 호출 통계 테이블 + 에러 타입별 분포 테이블. 좌측 사이드바 메뉴 7개 → 8개.
+- `/v1/internal/model/nothing/metrics-summary` 엔드포인트(master/admin 전용): prom-client Registry 직접 산출, 응답 캐시 TTL 10초, `?windowSec=N` 파라미터 지원.
+- Phase 2: timeseries ring buffer + SVG sparkline. 외부 차트 라이브러리 의존 없이 브라우저 네이티브 ESM으로 렌더링.
+- test cleanup hang 근본 해결: node:test runner "Promise resolution pending" 14초 잔여 제거(SSE heartbeat `.unref()`, lifecycle 회귀 가드).
+
+_meta 래퍼 구조 예시:
+
+```json
+{
+  "fragments": [...],
+  "_meta": {
+    "searchEventId": "evt-abc123",
+    "hints": { "signal": "consider_context" },
+    "suggestion": { "code": "large_limit_no_budget", "message": "..." }
+  }
+}
+```
+
+Deprecation 공지: top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드는 v3.0.0에서 `_meta.*`와 mirror 제공되며, v3.1.0에서 제거된다. 호출부는 `_meta.searchEventId` / `_meta.hints` / `_meta.suggestion`으로 전환할 것.
+
+### v3.0.0 신규 기능 — MemoryManager 분해 (v2.10.0 통합)
+
+Phase 5-B 내부 구조 분해. 사용자 API에는 변경 없다.
+
+- MemoryManager 축소: 1252줄 → 259줄 facade로 축소했다. 비즈니스 로직은 `lib/memory/processors/` 4개 클래스로 이동했다.
+  - MemoryRememberer: remember / batchRemember
+  - MemoryRecaller: recall / context
+  - MemoryReflector: reflect
+  - MemoryLinker: link / graph_explore
+- 공유 프로퍼티 동기화: facade ↔ 프로세서 간 setter를 `_installSharedSync` 패턴으로 동기화한다.
+
+### v3.0.0 신규 기능 — Mode preset / Affect / Local Embedding (v2.9.0 통합)
+
+- **Mode preset**: recall-only / write-only / onboarding / audit 4개 JSON preset. `X-Memento-Mode` 헤더 또는 `api_keys.default_mode` DB 컬럼으로 도구 노출 범위를 제한한다. 읽기 전용 에이전트, 감사 전용 세션 등 역할 기반 접근을 코드 변경 없이 구성할 수 있다.
+- **RecallSuggestionEngine**: recall 응답에 `_suggestion` 메타 필드를 비침습적으로 첨부. 반복 질의, 빈 결과, 과도한 limit 등 4개 패턴을 자동 감지하여 개선 힌트를 제공한다. 클라이언트가 무시해도 기존 동작 불변.
+- **Affective tagging**: `fragments.affect` 컬럼(neutral / frustration / confidence / surprise / doubt / satisfaction). remember / recall 시 감정 레이블로 필터링 가능. 반복 에러 패턴이나 확신도 높은 결정을 구분하는 데 활용된다.
+- **CLI LLM provider 체인**: Gemini CLI, Codex CLI, GitHub Copilot CLI를 `LLM_PRIMARY` / `LLM_FALLBACKS`에 지정 가능. 외부 API 비용 없이 로컬 CLI 바이너리로 형태소 분석·자동 reflect·모순 에스컬레이션을 처리한다.
+- **로컬 transformers.js 임베딩**: `EMBEDDING_PROVIDER=transformers`로 OpenAI API 없이 `@huggingface/transformers` 파이프라인 기반 임베딩. 기본 `Xenova/multilingual-e5-small` (384d). API 키 없는 로컬 전용 배포에 적합하다.
+- **토큰 기반 세션 재사용**: claude.ai 커넥터가 Mcp-Session-Id를 유실한 뒤 매 initialize마다 새 세션을 만들던 문제 해결. 동일 액세스 토큰에 기존 세션 ID를 재바인딩하여 기억 파편이 유실되지 않는다.
+
 ### 보안 하드닝 (v2.7.0)
 
 - **RBAC default-deny**: `TOOL_PERMISSIONS` 맵에 없는 도구명은 권한과 무관하게 즉시 거부된다.
@@ -227,7 +305,7 @@ Memento는 사실 기억(fact cache)에 최적화되어 있다. 전후관계가 
 | [Benchmark](docs/benchmark.md) | LongMemEval-S 벤치마크 상세 분석 |
 | [SKILL.md](SKILL.md) | MCP 도구 전체 레퍼런스 |
 | [INSTALL.md](docs/INSTALL.md) | 마이그레이션, 훅 설정, 상세 설치 |
-| [CHANGELOG](CHANGELOG.md) | 버전별 변경사항, v2.7.0 Migration Guide 포함 |
+| [CHANGELOG](CHANGELOG.md) | 버전별 변경사항, v3.0.0 umbrella 릴리즈 노트 및 Pre-3.0.0 incremental build 히스토리 포함 |
 
 ## 운영
 
@@ -248,12 +326,12 @@ Memento는 사실 기억(fact cache)에 최적화되어 있다. 전후관계가 
 - Node.js 20+
 - PostgreSQL 14+ (pgvector 확장)
 - Redis 6+ (선택)
-- OpenAI Embedding API (선택)
-- Gemini CLI (품질 평가, 모순 에스컬레이션, 자동 reflect 요약 생성용, 선택)
-- @huggingface/transformers + ONNX Runtime (NLI 모순 분류, CPU 전용, 자동 설치)
+- OpenAI Embedding API (선택) 또는 `EMBEDDING_PROVIDER=transformers` (로컬 저비용 모드)
+- Gemini CLI / Codex CLI / GitHub Copilot CLI (품질 평가, 형태소 분석, 자동 reflect; 선택, LLM_PRIMARY / LLM_FALLBACKS로 체인 구성)
+- @huggingface/transformers + ONNX Runtime (NLI 모순 분류 + 로컬 임베딩, CPU 전용)
 - MCP Protocol 2025-11-25
 
-PostgreSQL만 있으면 핵심 기능이 동작한다. Redis를 추가하면 L1 캐스케이드 검색과 SessionActivityTracker가 활성화되고, OpenAI API를 추가하면 L3 시맨틱 검색과 자동 링크가 활성화된다.
+PostgreSQL만 있으면 핵심 기능이 동작한다. Redis를 추가하면 L1 캐스케이드 검색과 SessionActivityTracker가 활성화되고, OpenAI API 또는 `EMBEDDING_PROVIDER=transformers`를 추가하면 L3 시맨틱 검색과 자동 링크가 활성화된다.
 
 ## 만들게 된 계기
 

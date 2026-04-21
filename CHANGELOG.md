@@ -14,6 +14,262 @@
 - `ContextBuilder` 생성자에 `hardeningEnabled`와 `auxiliaryPlanner` 주입 옵션이 추가되어 테스트/DI에서 planner 경로를 직접 제어할 수 있다.
 - 관련 회귀 테스트가 `tests/unit/context-builder.test.js`, `tests/unit/auxiliary-section-planner.test.js`, `tests/unit/context-structured.test.js`, `tests/unit/fragment-search-source-filter.test.js`에 추가 또는 확장되었다.
 
+## [3.0.0] - 2026-04-21
+
+v2.8.0 태그 이후 누적된 un-tagged 빌드 11종(v2.8.1 ~ v2.16.0)을 umbrella 릴리즈로 통합한다. 개별 minor/patch 라벨은 CHANGELOG 하단 "Pre-3.0.0 incremental builds" 섹션에 상세 보존된다.
+
+### Highlights
+
+- **Admin Metrics Dashboard** (v2.16.0): Prometheus 8 카드(Active Sessions / Auth Denied / RBAC Denied / Tenant Blocked / RPC p50/p99 / Tool Errors / Symbolic Gate Blocked / OAuth Tokens) + 도구별 호출/에러 분포 테이블 + SVG sparkline 시계열. `/v1/internal/model/nothing/metrics-summary` 엔드포인트(master/admin 전용, TTL 10초 캐시, `?windowSec=N`)
+- **CLI/API Enhancement L+M+H** (v2.11.0 ~ v2.12.0): 원격 CLI(`lib/cli/_mcpClient.js`, `--remote URL` / `--key KEY`), `_meta` 래퍼(`searchEventId` / `hints` / `suggestion`), sparse fields 17종 화이트리스트, `--help`/`--format table|json|csv`, idempotencyKey(maxLength 128, partial UNIQUE), X-RateLimit 헤더, dryRun 파라미터(remember/link/forget/amend), stdin / progress streaming / export·import, CLI session 관리 및 rotate / rate-limit / CSRF
+- **MemoryManager 분해** (v2.10.0): 1252줄 → 259줄 facade. 비즈니스 로직을 `lib/memory/processors/` 4개 클래스로 분리(MemoryRememberer / MemoryRecaller / MemoryReflector / MemoryLinker). facade ↔ 프로세서 간 `_installSharedSync` setter 동기화 패턴
+- **Mode preset / Affective tagging / Local Embedding** (v2.9.0): recall-only / write-only / onboarding / audit 4개 JSON preset(`X-Memento-Mode` 헤더 / `initialize.params.mode` / `api_keys.default_mode`). fragments.affect 컬럼(6 enum: neutral / frustration / confidence / surprise / doubt / satisfaction). `@huggingface/transformers` 로컬 임베딩 provider(`EMBEDDING_PROVIDER=transformers`, Xenova/multilingual-e5-small / bge-m3). Codex CLI / GitHub Copilot CLI LLM provider 추가. RecallSuggestionEngine 비침습적 힌트 필드. 토큰 기반 세션 재사용(sha256 + keyId 네임스페이스)
+- **Session 안정화 + OAuth 호환성** (v2.8.1 ~ v2.8.7): claude.ai / ChatGPT / Copilot / Gemini OAuth DCR-less 커넥터 완전 호환. name-based DCR client_id(`<name>_<keyIdHex8>`) + `client_name="apikey:<keyId>"` 내부 바인딩, `client_secret` API 키 바인딩, bound_key_id 경로. 세션 ID 보존 복구 + keyId 교차 검증(403). RFC 8707 `resource` 파라미터. `token_endpoint_auth_methods_supported` 확장. MCP 2025-06-18 Protocol-Version 헤더 검증. `MCP_REJECT_NONAPIKEY_OAUTH` / `MCP_ALLOW_AUTO_DCR_REGISTER` / `MCP_STRICT_ORIGIN` 보안 기본값. FragmentReader keyId ANY() 래핑 일괄 수정(v2.8.7)
+- **Symbolic Memory Layer hard gate** (v2.8.0): 이미 v2.8.0에서 도입(본 릴리즈는 hard gate 이후 후속 수정 및 문서 동기화 포함). `fragment_claims` + `api_keys.symbolic_hard_gate` BOOLEAN. 6 Phase(Foundation / Shadow / Explain / Link Integrity / Policy / CBR+Proactive) 전개. 기본값 전면 opt-out
+- **Scripts rename** (un-tagged 2026-04-19): `scripts/migration-007-flexible-embedding-dims.js` → `scripts/post-migrate-flexible-embedding-dims.js`. 자동 마이그레이션 러너와 수동 dimension 재구성 스크립트 구분. 심볼릭 링크로 하위 호환
+- **Test cleanup hang 근본 해결** (v2.16.1 scope): node:test runner "Promise resolution pending" 14초 잔여 제거. SSE heartbeat `.unref()`, cleanup 훅, lifecycle 회귀 가드
+
+### Breaking Changes
+
+코드 레벨 breaking 없음. 모든 신규 기능 opt-in. 기존 환경 변수·API 응답·DB 스키마 완전 호환.
+
+Deprecation 예고(v3.1.0에서 제거): recall / context 응답의 top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드. v3.0.0은 `_meta.searchEventId` / `_meta.hints` / `_meta.suggestion`과 top-level mirror를 동시 제공. 호출부는 `_meta.*`로 전환 권고.
+
+### Migration Guide (v2.8.0 → v3.0.0)
+
+1. `npm install` — `@huggingface/transformers` 신규 의존성(로컬 임베딩 사용 시에만 실제 로드). 기존 lock 갱신
+2. `npm run migrate` — migration-034(api_keys.default_mode ADD COLUMN) + migration-034-v2.16.0-bundle(fragments.affect / idempotency_key ADD COLUMN + partial unique 인덱스) 자동 적용. 모두 ADD COLUMN이므로 기존 행 변경 없음
+3. 환경 변수 확인 — 기본값 유지 시 추가 작업 없음. 선택적 기능 활성화:
+   - `EMBEDDING_PROVIDER=transformers` (로컬 임베딩)
+   - `LLM_PRIMARY` / `LLM_FALLBACKS` (LLM 폴백 체인)
+   - `MEMENTO_SYMBOLIC_*` (Symbolic 계층 단계적 활성화 — v2.8.0 Migration Guide 참조)
+   - `MCP_REJECT_NONAPIKEY_OAUTH=false` (claude.ai 외 DCR-less 클라이언트에 대한 하위 호환 복원이 필요한 경우만)
+4. EMBEDDING_PROVIDER 변경 시에만 `npm run backfill:embeddings` 수동 실행. 차원 불일치 시 서버 기동 단계에서 `scripts/check-embedding-consistency.js`가 즉시 중단
+5. 기존 스크립트 경로 `scripts/migration-007-flexible-embedding-dims.js` 참조 시 `scripts/post-migrate-flexible-embedding-dims.js`로 전환 권고(심볼릭 링크는 v2.13.0 네임스페이스 하위 호환 유지)
+
+### Known Limitations
+
+- v2.8.0 이후 v2.9.0 ~ v2.16.0의 중간 빌드는 git tag가 존재하지 않는다. v3.0.0이 유일한 공식 릴리즈 태그이며, 하위 빌드 히스토리는 본 CHANGELOG로만 추적된다
+- `MEMENTO_ACCESS_KEY` 미설정 상태에서 `MEMENTO_AUTH_DISABLED=true` 없이 서버를 기동하면 fail-closed로 거부된다(v2.7.0 정책 유지)
+
+---
+
+## Pre-3.0.0 incremental builds (un-tagged)
+
+아래는 v2.8.0 태그 이후 누적된 11개 빌드의 원본 상세 이력이다. 모두 v3.0.0 릴리즈에 포함되며, 개별 git tag는 존재하지 않는다.
+
+### v2.16.0 draft — Admin Metrics Dashboard (2026-04-20)
+
+#### Added
+
+- Admin Console: 메트릭 메뉴 추가 — Prometheus 8 카드(Active Sessions / Auth Denied / RBAC Denied / Tenant Blocked / RPC p50/p99 / Tool Errors / Symbolic Gate Blocked / OAuth Tokens) + 도구별 호출 통계 테이블 + 에러 타입별 분포 테이블. Admin UI 좌측 사이드바 메뉴 7개 → 8개.
+- `/v1/internal/model/nothing/metrics-summary` 엔드포인트 (master/admin 전용): prom-client Registry에서 직접 산출, 응답 캐시 TTL 10초, `?windowSec=N` 파라미터 지원.
+
+---
+
+### v2.12.0 — CLI/API Enhancement Phase 2 (2026-04-20)
+
+### Added
+
+- M1 원격 CLI: `lib/cli/_mcpClient.js` 신설. `--remote URL` / `--key KEY` 전역 플래그 및 `MEMENTO_CLI_REMOTE` / `MEMENTO_CLI_KEY` 환경변수 fallback. initialize → tools/call 2단계 세션을 생성하고 재사용한다. local-only 명령(migrate, admin 등)을 원격 모드에서 호출하면 에러를 반환한다.
+- M3 X-RateLimit HTTP 헤더: 모든 API 응답에 `X-RateLimit-Limit` / `X-RateLimit-Remaining` / `X-RateLimit-Resource` 헤더 포함. `QuotaChecker.getUsage` + 모듈 레벨 Map 캐시(TTL 10초, 상한 1000 엔트리). master key 또는 limit=null이면 헤더 생략.
+- M5 dryRun 파라미터: remember / link / forget / amend 4개 MCP 도구에 `dryRun: boolean` 파라미터 추가. 기본값 false. true 시 `simulated: true` 응답 반환 + 모든 side-effect 스킵.
+
+### v2.11.0 — CLI/API Enhancement Phase 1 (2026-04-20)
+
+### Added
+
+- H1 _meta 래퍼: recall / context 응답에 `_meta: { searchEventId, hints, suggestion }` 필드 추가. 기존 top-level 필드는 v2.12.x 마지막 릴리즈까지 동일 값으로 mirror 제공된다.
+- H2 sparse fields: recall 파라미터에 `fields: string[]` 추가. 17개 화이트리스트(id / content / type / topic / keywords / importance / created_at / access_count / confidence / linked / explanations / workspace / context_summary / case_id / valid_to / affect / ema_activation). L1/L2/RRF 단계는 전체 필드 유지 후 응답 직전에 필터링.
+- H3 CLI 서브명령별 `--help` / `-h`: 11개 모듈의 `usage` export 추가.
+- H4 CLI `--format table|json|csv`: TTY 환경 자동 감지. `--json`은 `--format json` 별칭. `lib/cli/_format.js` 신설.
+- H5 idempotencyKey: remember / batchRemember 스키마에 `idempotencyKey` 파라미터 추가(maxLength 128). 같은 key_id 범위 내 partial UNIQUE 보장. `FragmentReader.findByIdempotencyKey` 신설. migration-034-v2.16.0-bundle(tenant partial index + master partial index 2개).
+
+### Deprecated
+
+- recall / context 응답의 top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드: v2.12.x 마지막 릴리즈를 끝으로 v2.13.0에서 제거된다. `_meta.searchEventId` / `_meta.hints` / `_meta.suggestion`으로 전환할 것.
+
+### v2.10.1 — TDZ 핫픽스 (2026-04-20)
+
+### Fixed
+
+- R12 TDZ 핫픽스: `remember()` 내부의 atomic 분기(`MEMENTO_REMEMBER_ATOMIC=true && keyId != null` 경로)가 `const fragment` 선언 이전에 위치하여 ReferenceError가 발생했다. atomic 분기를 fragment 생성 이후로 이동하고, `quotaChecker.check`를 `!(atomicRemember && keyId)` 가드로 조건부 호출하도록 수정했다. 원격 `memento.anchormind.net` 서버에서 동일 증상이 발생하던 문제도 함께 해소된다.
+
+### Added
+
+- 회귀 방지 단위 테스트 `tests/unit/memory-manager-remember-tdz.test.js`: atomic 분기의 TDZ 경로를 직접 재현하는 테스트 추가.
+
+### v2.10.0 — MemoryManager 분해 (2026-04-20)
+
+### Changed
+
+- MemoryManager 1252줄 → 259줄 facade로 축소. 비즈니스 로직을 `lib/memory/processors/` 4개 클래스로 분리했다: MemoryRememberer(remember/batchRemember), MemoryRecaller(recall/context), MemoryReflector(reflect), MemoryLinker(link/graph_explore).
+- facade ↔ 프로세서 간 공유 프로퍼티 setter를 `_installSharedSync` 패턴으로 동기화한다. 외부에서 `memoryManager.embedder = x`처럼 세터를 호출하면 모든 프로세서에 자동 전파된다.
+
+### Tests
+
+- `tests/unit/memory-manager-di.test.js`: DI 경로를 `MemoryManager.prototype.remember.toString()` → `MemoryRememberer.prototype.remember.toString()`으로 전환.
+- `tests/unit/remember-processor.test.js`: MemoryRememberer 직접 DI 경로로 전환.
+
+### Pre-2.10.0 — Scripts rename (2026-04-19)
+
+#### Changed
+
+- scripts/migration-007-flexible-embedding-dims.js 를 scripts/post-migrate-flexible-embedding-dims.js 로 이름 변경. 자동 마이그레이션 러너(lib/memory/migration-NNN-*.sql)와 수동 dimension 재구성 스크립트를 파일명으로 명확히 구분하기 위함.
+- setup.sh, .env.example 내 구 경로 참조를 신 경로로 일괄 치환.
+
+#### Deprecation Notice
+
+- scripts/migration-007-flexible-embedding-dims.js 는 신 경로(post-migrate-flexible-embedding-dims.js)를 가리키는 심볼릭 링크로 v2.13.0까지 유지된다.
+- 외부 스크립트나 CI에서 구 경로를 직접 참조하는 경우 scripts/post-migrate-flexible-embedding-dims.js 로 전환할 것을 권고한다.
+
+### v2.9.0 — Mode preset / Affect / Local Embedding / LLM CLI Providers (2026-04-18)
+
+### Added
+
+- **Mode preset 시스템**: recall-only / write-only / onboarding / audit 4개 JSON preset. `X-Memento-Mode` 헤더, `initialize.params.mode`, `api_keys.default_mode` DB 컬럼 3경로로 활성화. tools/list 응답이 mode별로 필터링된다. (`lib/memory/ModeRegistry.js`, `lib/memory/modes/*.json`, migration-034-v2.16.0-bundle.sql)
+- **RecallSuggestionEngine 비침습적 힌트 필드**: recall 응답에 `_suggestion: {code, message, recommendedTool, recommendedArgs}` 메타 필드 첨부. 4개 감지 규칙(repeat_query / empty_result_no_context / large_limit_no_budget / no_type_filter_noisy). 클라이언트가 무시해도 기존 동작 불변. (`lib/memory/RecallSuggestionEngine.js`)
+- **Affective tagging**: fragments.affect 컬럼(neutral / frustration / confidence / surprise / doubt / satisfaction 6 enum). remember / recall 스키마에 affect 파라미터 노출. CHECK 제약 + partial index. (migration-034-v2.16.0-bundle.sql, FragmentWriter / Reader)
+- **Tool 메타 레지스트리**: 16개 도구에 `meta: {capabilities[], riskLevel, requiresMaster, beta, idempotent}` 정적 필드 추가. 도구별 능력 디스커버리를 위한 Node.js 관용 메타데이터 레지스트리. (`lib/tool-registry.js`)
+- **Codex CLI provider**: `LLM_PRIMARY` / `LLM_FALLBACKS`에 `codex-cli` 지정 시 `codex exec --skip-git-repo-check --full-auto -o FILE` 경로로 JSON 출력을 파싱한다. (`lib/codex.js`, `lib/llm/providers/CodexCliProvider.js`)
+- **GitHub Copilot CLI provider**: `copilot-cli` 지정 시 `copilot -p "prompt" --allow-all-tools --output-format text` 호출 + `extractJsonBlock`으로 통계 꼬리를 제거한다. (`lib/copilot.js`, `lib/llm/providers/CopilotCliProvider.js`)
+- **로컬 transformers.js 임베딩 provider**: `EMBEDDING_PROVIDER=transformers`로 `@huggingface/transformers` 파이프라인 기반 임베딩. 기본 `Xenova/multilingual-e5-small` (384d), 옵션 `Xenova/bge-m3` (1024d). OpenAI API와 상호 배타 (데이터 혼합 방지). (`lib/embeddings/LocalTransformersEmbedder.js`, docs/embedding-local.md)
+- **Startup embedding consistency check**: fragments + morpheme_dict 두 테이블 차원이 config와 일치하는지 server.js 기동 시 검증, 불일치 시 기동 거부. (`scripts/check-embedding-consistency.js`)
+- **토큰 기반 세션 재사용**: claude.ai 커넥터가 Mcp-Session-Id 유실 후 매 initialize마다 새 세션을 생성하던 문제 해결. sha256 해시 + keyId 네임스페이스로 Redis 역인덱스를 구성하여 동일 액세스 토큰에 기존 세션을 재사용한다. (`lib/handlers/mcp-handler.js` deriveTokenKey, `lib/redis.js` bindTokenToSession / getSessionIdByToken)
+- **E2E 통합 테스트 4종**: llm-cli-smoke (CLI 바이너리 스모크), llm-chain-real (체인 실측 subprocess 기반), llm-timeout (latency / timeout 강제), morpheme-llm-real (MorphemeIndex end-to-end), local-embedding (transformers 모델 로드). 환경변수 가드(`E2E_LLM_CLI` 등)로 기본 SKIP. `npm run test:integration:llm` 스크립트 + `tests/integration/README.md` 실행 가이드. (tests/integration/)
+- **`tests/integration/_cleanup.js` 공통 cleanup 모듈**: Redis / DB pool 핸들 명시 해제로 Node 이벤트 루프 자연 종료 보장.
+
+### Changed
+
+- **MorphemeIndex LLM timeout 상향**: 15_000ms → 60_000ms. Gemini CLI / Ollama Cloud 실제 응답(20-40s)에 맞게 조정하여 반복적인 "all LLM providers failed" 패턴을 해소한다. (`config/memory.js`)
+- **migration-007 확장**: fragments + morpheme_dict 두 테이블을 루프로 처리하도록 flexible-embedding-dims 마이그레이션을 확장.
+- **`.env` 샘플 갱신**: `LLM_FALLBACKS`에 `codex-cli` / `copilot-cli` 예시 포함.
+
+### Fixed
+
+- **FragmentReader / LinkStore 다중 경로의 keyId ANY() 래핑 누락**: scalar keyId를 `ANY($N)`에 그대로 push하여 "비정상적인 배열 문자" PG 오류를 발생시키던 버그. v2.8.7에서 `getByIds`만 수정한 패턴을 `searchByKeywords`, `searchByTopic`, `searchBySemantic`, `searchByTimeRange`, `searchAsOf`, `getLinkedFragments`(2곳), `getRCAChain`에 일괄 적용. `Array.isArray` 래핑. (`lib/memory/FragmentReader.js`, `lib/memory/LinkStore.js`)
+- **TemporalLinker `::integer[]` 오캐스팅**: `fragments.key_id`가 TEXT 컬럼인데 `::integer[]` 캐스팅을 사용하여 "연산자 없음: text = integer" 에러가 발생하던 문제. `::text[]`로 교체. (`lib/memory/TemporalLinker.js`)
+- **빈 POST body null crash**: `readJsonBody`가 빈 body를 받아 `JSON.parse(null)`을 반환할 때 발생하던 unhandledRejection. `handleMcpPost` 진입부에서 null을 400 Invalid Request로 거부. `injectSessionContext`에도 null 가드를 이중 방어로 추가.
+- **`npm run test:integration:llm` 서브프로세스 경합**: `--test-concurrency=1` 플래그로 순차 실행을 강제하여 병렬 CLI 서브프로세스 간 경합을 제거.
+
+### Upgrade from v2.8.x
+
+1. `npm install` — package.json 의존성 갱신. `@huggingface/transformers` 패키지가 신규 추가된다.
+2. `npm run migrate` — migration-034(api_keys.default_mode ADD COLUMN), migration-034-v2.16.0-bundle(fragments.affect ADD COLUMN) 실행. 두 마이그레이션 모두 ADD COLUMN이므로 기존 데이터를 변경하지 않는다.
+3. `EMBEDDING_PROVIDER` 검토 — 기본값(`openai` 계열)을 유지하면 추가 작업 없음. 로컬 임베딩으로 전환할 경우 `EMBEDDING_PROVIDER=transformers`를 설정하고 기존 OpenAI 임베딩과 혼합하지 않도록 `scripts/backfill-embeddings.js`로 전체 재생성 후 서버를 기동한다.
+4. backfill-embeddings (조건부) — `EMBEDDING_PROVIDER` 를 변경한 경우만 해당. `npm run backfill:embeddings`로 embedding IS NULL 파편을 일괄 처리한다.
+5. 서버 재시작 — 기동 시 `scripts/check-embedding-consistency.js`가 DB 차원과 설정 차원의 일치를 자동 검증하며, 불일치 시 즉시 기동을 중단하고 오류를 출력한다.
+
+### Breaking Changes
+
+없음. 모든 신규 기능은 opt-in이다. Mode preset / affect / 로컬 임베딩은 기본값을 유지하면 기존 동작이 완전히 보존된다. migration-034(api_keys.default_mode), migration-034-v2.16.0-bundle(fragments.affect)는 ADD COLUMN이므로 기존 데이터에 영향 없다.
+
+### v2.8.7 — FragmentReader keyId ANY() 일괄 fix (2026-04-17)
+
+### Fixed
+
+- **`FragmentReader.getByIds` PostgreSQL "malformed array literal" 에러**: `key_id = ANY($3)` SQL에 단일 UUID 문자열을 그대로 바인딩하여 PG가 배열 파싱 시 실패했다. 호출 측이 `keyId`를 문자열로 전달하는 경우 배열로 래핑(`[keyId]`)하도록 수정. 영향 경로: `FragmentSearch.fetch`(missing IDs 조회), `RememberPostProcessor.linkedTo 소유권 확인`, `SessionLinker.autoLinkSessionFragments` — 간헐적 recall/remember/link 실패 원인이었다. (`lib/memory/FragmentReader.js`)
+
+### v2.8.6 — OAuth auto-register on trusted redirect_uri (2026-04-17)
+
+### Changed
+
+- **신뢰 redirect_uri에 한해 `/authorize` 자동 등록 허용**: `OAUTH_TRUSTED_ORIGINS` 기반 `isAllowedRedirectUri`가 true인 경우, `ALLOW_AUTO_DCR_REGISTER`와 무관하게 미등록 client_id도 `/authorize` 진입 시 자동 등록된다. 실질적 보안 경계는 v2.8.5의 `/token` `client_secret` 검증이므로 auto-register 자체는 안전하다. 바인딩되지 않은 토큰(API 키 미포함 시)은 `REJECT_NONAPIKEY_OAUTH=true` 정책에 의해 auth.js에서 거부된다. (`lib/handlers/oauth-handler.js`)
+- **기본 신뢰 도메인 확인**: `claude.ai`, `chatgpt.com`, `platform.openai.com`, `copilot.microsoft.com`, `gemini.google.com` 5개 사전 내장. `OAUTH_TRUSTED_ORIGINS` env로 추가 가능. (`lib/config.js`)
+
+### Impact
+
+- claude.ai 외 ChatGPT/Copilot/Gemini 등 OAuth DCR-less 클라이언트도 사전 수동 등록 없이 즉시 연결 가능. 사용자가 client_id에 임의 문자열 + client_secret에 API 키를 입력하기만 하면 됨.
+- 비신뢰 redirect_uri는 기존과 동일하게 `ALLOW_AUTO_DCR_REGISTER=false` 기본값에서 차단 (보안 유지).
+
+### v2.8.5 — claude.ai OAuth MCP 2025-06-18 compliance (2026-04-17)
+
+### Fixed
+
+- **claude.ai OAuth 연결 실패 해결 (MCP 2025-06-18 spec 준수)**: claude.ai는 사용자가 connector UI에 입력한 `client_id`로 `/authorize`를 호출하고 `POST /token` body의 `client_secret`에 API 키를 전송한다. 다음 3개 수정으로 정상 tenant-격리된 OAuth 세션이 발급된다.
+
+### Added
+
+- **`/token#handleToken`의 `client_secret` → API 키 바인딩**: body의 `client_secret`을 `validateApiKeyFromDB`로 검증해 `tokenData.is_api_key=true` + `bound_key_id=keyId`를 주입. authorization_code와 refresh_token grant 모두 지원. 기존 auth.js의 bound_key_id 경로(v2.8.4)와 맞물려 keyId 격리 세션을 발급. (`lib/oauth.js`)
+- **RFC 8707 `resource` 파라미터 저장**: `/authorize`와 `/token`에서 받은 `resource`를 codeData/tokenData에 보존하여 토큰 audience 추적. (`lib/oauth.js`, `lib/handlers/oauth-handler.js`)
+
+### Changed
+
+- **`token_endpoint_auth_methods_supported` 확장**: `["none"]` → `["none", "client_secret_post", "client_secret_basic"]`. claude.ai의 `client_secret_post` 호출과 AS metadata 일치. (`lib/oauth.js#getAuthServerMetadata`)
+- **`bearer_methods_supported`에서 `query` 제거**: `["header", "query"]` → `["header"]`. MCP 스펙(2025-06-18 §249) "MUST NOT in URI query string" 준수. (`lib/oauth.js#getResourceMetadata`)
+- **Protected Resource Metadata의 `resource` URI에 `/mcp` 경로 포함**: `${baseUrl}` → `${baseUrl}/mcp`. claude.ai가 `resource` 필드를 MCP 엔드포인트로 사용하여 이전에는 `/`(root)로 POST하다 404를 받던 문제 해결. (`lib/oauth.js#getResourceMetadata`)
+
+### v2.8.4 — name-based DCR client_id + internal keyId binding (2026-04-17)
+
+### Changed
+
+- **`/register` Authorization Bearer 바인딩 전략 변경**: v2.8.3의 API 키 원문을 `client_id`로 사용하는 방식을 폐기. 원문 키가 URL·브라우저 히스토리·프록시 로그에 그대로 노출되는 문제를 해결. 이제 `client_id = "<name>_<keyIdHex8>"` (URL-safe 이름 + UUID 앞 8자 hex suffix)으로 등록한다. `validateRedirectUri` 엄격 검증이 기본 방어선이므로 보안 강도는 동일하게 유지된다. (`lib/handlers/oauth-handler.js`)
+
+### Added
+
+- **`client_name = "apikey:<keyId>"` 내부 바인딩 마커**: 스키마 변경 없이 `oauth_clients.client_name` 필드에 keyId UUID를 인코딩. `/authorize` 경로에서 이 마커를 파싱하여 `validateApiKeyById`로 tenant 격리 컨텍스트를 복원한다.
+- **`validateApiKeyById(id)` 신규 함수** (`lib/admin/ApiKeyStore.js`): UUID 기반 API 키 조회. 원시 키 없이 keyId만으로 권한 정보(`keyId`, `name`, `groupKeyIds`, `permissions`, `defaultWorkspace`)를 반환.
+- **`validateApiKeyFromDB` 반환 객체에 `name` 필드 추가**: 기존 반환 구조를 확장하여 `name` 필드를 포함. 하위 호환 유지.
+- **`bound_key_id` 필드 전파**: `codeData` → `accessData`/`refreshData` → `validateAccessToken` 반환 객체까지 `bound_key_id`가 완전 전파. refresh_token 갱신 시에도 승계됨.
+- **`validateAuthentication` bound_key_id 우선 경로** (`lib/auth.js`): OAuth 토큰의 `bound_key_id`가 있으면 `validateApiKeyById`로 1순위 처리. 기존 `is_api_key` 경로는 2순위로 유지 (v2.8.3 호환). non-API-key OAuth 거부는 3순위.
+- **신규 메트릭** 3종:
+  - `mcp_oauth_bound_client_registered_total`: name-based binding 등록 성공 횟수
+  - `mcp_oauth_bound_client_authorized_total`: bound_key_id 경로로 /authorize 진입 횟수
+  - `mcp_oauth_bound_client_authenticated_total`: bound_key_id 경로 인증 성공 횟수
+- **신규 테스트** (`tests/unit/oauth-name-based-client-id.test.js`): 29개 케이스 (client_id 생성, client_name 마커, backward compat, bound_key_id 전파, refresh_token 승계, validateAuthentication 우선순위, 패턴 매칭 경계 케이스).
+
+### Notes
+
+- v2.8.3에서 전체 API 키 문자열을 `client_id`로 등록한 기존 Redis 토큰은 `bound_key_id=null`로 2순위 `is_api_key` 경로를 통해 정상 동작. backward compat 완전 보장.
+- DB 스키마 변경 없음. migration 추가 불필요.
+
+### v2.8.3 — DCR /register API key binding (2026-04-17)
+
+### Fixed
+
+- **DCR /register Authorization 헤더 기반 client_id 바인딩**: claude.ai 등 OAuth DCR 클라이언트가 `POST /register` 요청 시 `Authorization: Bearer <API 키>` 헤더로 보낸 API 키가 유효하면, 해당 API 키 문자열을 `client_id`로 사용하여 등록한다. 이후 `/authorize` 경로에서 `validateApiKeyFromDB`로 자연스럽게 `is_api_key=true` 경로를 타게 되어, Phase 2b의 non-API-key OAuth 거부 정책과 충돌 없이 정상 tenant 격리된 세션을 발급받는다. (`lib/handlers/oauth-handler.js`)
+
+### Notes
+
+- 별도 DB 스키마 변경 없음. 기존 `mmcp_*` 접두 client_id 플로우를 재활용한다.
+- Authorization 헤더 없거나 유효하지 않은 토큰이면 기존 랜덤 client_id로 등록하되, 그 클라이언트가 발급받은 토큰은 auth.js의 `REJECT_NONAPIKEY_OAUTH=true` 정책에 의해 여전히 거부된다.
+
+### v2.8.2 — MCP spec compliance + OAuth hardening (2026-04-17)
+
+### Security
+
+- **non-API-key OAuth 클라이언트의 master 권한 취약점 차단**: `is_api_key=false` OAuth 토큰으로 인증 시도 시 `keyId=null` 세션이 생성되어 모든 파편에 master 권한으로 접근할 수 있었던 취약점 차단. `MCP_REJECT_NONAPIKEY_OAUTH=false`로만 기존 동작 복원 가능. (`lib/auth.js`)
+- **OAuth auto-registration 기본 비활성화**: `/authorize`에서 미등록 `client_id`가 유효한 `redirect_uri`만 있으면 자동 등록되던 경로 차단. RFC 7591 `POST /register` 엔드포인트 경유 강제. `MCP_ALLOW_AUTO_DCR_REGISTER=true`로만 기존 동작 복원 가능. (`lib/handlers/oauth-handler.js`)
+
+### Added
+
+- **Spec compliance (세션 404)**: `sessionId` 있으나 Redis에 없고 인증도 실패한 경우, 또는 세션 expired 상태인 경우 HTTP 404 Not Found + JSON-RPC `-32000 "Session not found"` 반환. MCP 2025-06-18 스펙 요구사항 준수.
+- **Security (Origin 검증)**: `MCP_STRICT_ORIGIN=true` 설정 시 허용 목록(`OAUTH_TRUSTED_ORIGINS` + `ALLOWED_ORIGINS` + 기본 신뢰 도메인) 외 Origin에서 온 요청을 403으로 거부. DNS rebinding 공격 방어. 기본값 `false` (opt-in, 기존 동작 유지).
+- **Spec compliance (Protocol-Version)**: initialize 이후 모든 요청에서 `MCP-Protocol-Version` 헤더 검증. 헤더 없으면 2025-03-26 fallback, 미지원 버전이면 400, 세션 negotiatedVersion과 불일치하면 400. initialize 요청은 검증 생략.
+- **세션 `negotiatedVersion` 필드**: initialize 응답 완료 시 협상된 프로토콜 버전을 세션 데이터에 저장. 이후 요청의 MCP-Protocol-Version 대조에 활용.
+- **`MCP_REJECT_NONAPIKEY_OAUTH` 환경변수** (기본 `true`): non-API-key OAuth 토큰 거부 제어. `false` 설정 시 하위 호환 모드.
+- **`MCP_ALLOW_AUTO_DCR_REGISTER` 환경변수** (기본 `false`): OAuth 자동 클라이언트 등록 허용 제어. `true` 설정 시 기존 자동 등록 동작.
+- **New env**: `MCP_STRICT_ORIGIN` (기본 `false`).
+- **New metrics**: `mcp_session_404_total`, `mcp_origin_rejected_total` (label: `origin`), `mcp_protocol_version_rejected_total` (label: `version`), `mcp_oauth_nonapikey_rejected_total`, `mcp_oauth_auto_register_blocked_total`.
+
+### v2.8.1 — Session integrity + recovery (2026-04-17)
+
+### Added
+
+- **세션 ID 보존 복구**: `lib/sessions.js`에 `createStreamableSessionWithId(sessionId, ...)` 추가. auto-recovery 경로에서 `crypto.randomUUID()` 대신 클라이언트가 보낸 원본 `sessionId`로 세션을 재생성하여 데이터 연속성 보장.
+- **keyId 교차 검증 (403)**: 세션 복구 시 Redis의 기존 `keyId`와 재인증된 `keyId`가 불일치하면 403 Forbidden + JSON-RPC `-32000 "Forbidden"` 반환. `recordTenantIsolationBlocked("session_recover_keyid_mismatch")` 호출.
+- **Redis 세션 저장 실패 메트릭** (`mcp_redis_session_save_failure_total`, label: `operation`): Redis saveSession catch 경로에서 자동 집계.
+- **세션 복구 결과 메트릭** (`mcp_session_recovery_total`, label: `result` = `same_id_success` | `keyid_mismatch` | `not_found` | `new_session`): auto-recovery 분기 전체 관측.
+- **세션 idle reflect 메트릭** (`mcp_session_idle_reflect_total`): 24h idle autoReflect 실행 시 카운트.
+- **MCP_IDLE_REFLECT_HOURS 환경변수** (기본 24): `cleanupExpiredSessions`에서 이 시간 이상 비활성 세션에 중간 autoReflect 실행.
+- **세션 객체 `lastReflectedAt` 필드**: 마지막 reflect 시각 추적. idle reflect 중복 실행 방지.
+
+### Fixed
+
+- **Heartbeat 연속 실패 경로 autoReflect 누락**: `lib/sessions.js`의 heartbeat interval에서 `hbFailures >= SSE_MAX_HEARTBEAT_FAILURES` 시 `session.close()` 직접 호출 대신 `closeStreamableSession(sessionId)`를 경유하도록 수정. 세션 종료 시 autoReflect가 반드시 실행됨.
+
+---
+
 ## [2.8.0] - 2026-04-16
 
 ### Added — Symbolic Memory Layer (opt-in, 기본 전면 비활성)

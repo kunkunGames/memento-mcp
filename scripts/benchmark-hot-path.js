@@ -1,34 +1,23 @@
 #!/usr/bin/env node
 /**
- * Hot path baseline benchmark for v2.7.0 GA
+ * benchmark-hot-path.js — hot path p50/p95/p99 latency 측정
  *
  * 작성자: 최진호
- * 작성일: 2026-04-15
+ * 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
  *
- * 목적: v2.8.0 Symbolic Memory 도입 전, 핵심 경로의 p50/p95/p99 latency 를
- *       측정하여 회귀 기준선을 확보한다. Phase 0 진입 조건.
+ * 목적: remember/recall/link/reflect 4개 hot path의 p50/p95/p99 latency를 측정하여
+ *       Symbolic Memory 도입 전후 회귀 기준선을 확보한다.
+ * 호출 조건: v2.8.0 Symbolic Memory 계층 활성화 전 baseline 확보,
+ *            feature flag 전환 후 오버헤드 비교 측정
+ * 빈도: 조건부 (Symbolic Memory Phase 전환 전 1회)
+ * 의존: DATABASE_URL (테스트 DB 전용. 프로덕션 DB 실행 금지)
+ * 관련 문서: docs/operations/benchmark-hot-path.md, docs/operations/maintenance.md
  *
- * 측정 대상 (Hot path 4종):
- *   - remember : 100 회 (random topic/content)
- *   - recall   : 100 회 (random keywords)
- *   - link     : 100 회 (연속된 fragment 쌍)
- *   - reflect  : 10  회 (reflect 는 무겁기 때문에 샘플 수 축소)
+ * MemoryManager: v2.10.0 이후 내부 분해로 MemoryRememberer 등 하위 클래스로 재편되었으나,
+ *   이 스크립트는 MemoryManager facade를 경유하여 동일하게 동작한다. 직접 참조 변경 불필요.
  *
- * 실행 방법:
- *   DATABASE_URL=postgresql://... node scripts/benchmark-hot-path.js
- *
- * 주의:
- *   - 테스트 DB 전제. 프로덕션 DB 에서 실행 금지.
- *   - 결과는 scripts/baseline-v27.json 에 저장 (overwrite).
- *   - 기본 플래그로 실행 (MEMENTO_SYMBOLIC_ENABLED=false).
- *
- * 출력 포맷 (scripts/baseline-v27.json):
- *   {
- *     "runAt": ISO-8601,
- *     "gitSha": "abc1234",
- *     "remember": { "p50": ms, "p95": ms, "p99": ms, "n": 100 },
- *     ...
- *   }
+ * 출력: scripts/baseline-v27.json (overwrite). { runAt, gitSha, remember, recall, link, reflect }
+ *       각 항목은 { p50, p95, p99, n } 구조.
  */
 
 import fs                from 'node:fs';
