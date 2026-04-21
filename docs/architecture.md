@@ -23,7 +23,12 @@ server.js  (HTTP 서버)
     ├── lib/tool-registry.js  18개 기억 도구 등록 및 라우팅
     │
     └── lib/memory/
-            ├── MemoryManager.js          비즈니스 로직 조율 계층 (904줄, 싱글턴). remember/recall/forget/amend 진입점. 실제 로직은 아래 Processor/Builder로 위임
+            ├── MemoryManager.js          비즈니스 로직 조율 facade (259줄, 싱글턴). 15개 공개 메서드를 1줄 위임으로 4개 processor에 라우팅. 공유 프로퍼티는 _installSharedSync로 동기화
+            ├── processors/
+            │   ├── MemoryRememberer.js   remember() 전담 (~695줄). R12 TDZ 핫픽스 포함: fragment 생성 후 atomic 분기
+            │   ├── MemoryRecaller.js     recall() 전담 (~405줄). fields pick 단계, depth 필터, CBR 경로
+            │   ├── MemoryReflector.js    reflect() 전담 (~89줄). session 요약→파편 변환
+            │   └── MemoryLinker.js       link()/forget()/amend() 전담 (~80줄)
             ├── ContextBuilder.js         context() 로직 전담. Core/Working/Anchor Memory 조합 컨텍스트 생성
             ├── ReflectProcessor.js       reflect() 로직 전담. summary→파편 변환, episode 생성, Working Memory 정리
             ├── BatchRememberProcessor.js batchRemember() 로직 전담. Phase A(검증)→B(INSERT)→C(후처리) 3단계
@@ -98,7 +103,12 @@ server.js  (HTTP 서버)
             ├── migration-028-composite-indexes.sql  (agent_id, topic, created_at DESC) 복합 인덱스 + (key_id, agent_id, importance DESC) 부분 인덱스 (QuotaChecker/FragmentReader 최적화)
             ├── migration-029-search-param-thresholds.sql  search_param_thresholds 테이블 (SearchParamAdaptor 온라인 학습 저장소, key_id NOT NULL DEFAULT -1)
             ├── migration-030-search-param-thresholds-key-text.sql  search_param_thresholds.key_id INTEGER→TEXT 변환 (fragments.key_id TEXT 타입과 통일, sentinel -1 → '-1')
-            └── migration-031-content-hash-per-key.sql  content_hash 전역 UNIQUE 인덱스 폐기 후 partial unique index 2개로 전환 (크로스 테넌트 ON CONFLICT 차단): uq_frag_hash_master (key_id IS NULL), uq_frag_hash_per_key (key_id IS NOT NULL, 복합)
+            ├── migration-031-content-hash-per-key.sql  content_hash 전역 UNIQUE 인덱스 폐기 후 partial unique index 2개로 전환 (크로스 테넌트 ON CONFLICT 차단): uq_frag_hash_master (key_id IS NULL), uq_frag_hash_per_key (key_id IS NOT NULL, 복합)
+            ├── migration-032-fragment-claims.sql        Symbolic Memory Layer — fragment_claims 테이블 (v2.8.0)
+            ├── migration-033-symbolic-hard-gate.sql     api_keys.symbolic_hard_gate BOOLEAN DEFAULT false (v2.8.0)
+            ├── migration-034-api-keys-default-mode.sql  api_keys.default_mode TEXT NULL — Mode preset 키 단위 기본값 (v2.9.0)
+            ├── migration-034-v2.16.0-bundle-fragments-affect.sql       fragments.affect TEXT DEFAULT 'neutral' CHECK 제약 6 enum (v2.9.0)
+            └── migration-034-v2.16.0-bundle-idempotency-key.sql        fragments.idempotency_key TEXT NULL + partial UNIQUE 2종: (key_id, idempotency_key) WHERE idempotency_key IS NOT NULL AND key_id IS NOT NULL / (idempotency_key) WHERE idempotency_key IS NOT NULL AND key_id IS NULL (v2.11.0)
 ```
 
 지원 모듈:
@@ -193,11 +203,83 @@ scripts/
 ├── backfill-embeddings.js                       임베딩 소급 처리 (1회성)
 ├── normalize-vectors.js                         벡터 L2 정규화 (1회성)
 ├── migrate.js                                   DB 마이그레이션 러너 (schema_migrations 기반 증분 적용, .env 자동 로드, pgvector 스키마 자동 감지)
-├── migration-007-flexible-embedding-dims.js     임베딩 차원 마이그레이션
+├── post-migrate-flexible-embedding-dims.js      임베딩 차원 마이그레이션
 └── cleanup-noise.js                             저품질/노이즈 파편 일괄 정리 (1회성)
 ```
 
 `config/memory.js`는 별도 파일로 분리된 기억 시스템 설정이다. 시간-의미 복합 랭킹 가중치, stale 임계값, 임베딩 워커, 컨텍스트 주입, 페이지네이션, GC 정책을 담는다. `config/validate-memory-config.js`는 서버 시작 시 1회 호출되어 MEMORY_CONFIG의 가중치 합계, 범위, 타입 제약을 런타임 검증한다. 실패 시 프로세스 시작을 중단한다.
+
+---
+
+## MemoryManager Facade 분해 (v2.10.0)
+
+v2.10.0에서 MemoryManager는 1252줄에서 259줄의 thin facade로 축소되었다. 비즈니스 로직은 `lib/memory/processors/` 하위 4개 processor로 분리되었다.
+
+```
+MemoryManager (259줄, facade)
+  ├── MemoryRememberer  (~695줄) — remember(), batchRemember()
+  ├── MemoryRecaller    (~405줄) — recall(), context()
+  ├── MemoryReflector   ( ~89줄) — reflect()
+  └── MemoryLinker      ( ~80줄) — link(), forget(), amend()
+```
+
+의존 방향: processors → 공용 모듈 (FragmentStore, FragmentSearch 등) / 외부 호출자 → facade → processors.
+
+### _installSharedSync 설계
+
+facade 생성자는 20개 공유 객체(store, index, factory, search, quotaChecker 등)를 초기화한 뒤 4개 processor에 DI 주입한다. 이후 `_installSharedSync()`를 호출하여 facade의 각 공유 프로퍼티 setter를 `Object.defineProperty`로 래핑한다.
+
+```js
+// 개념 코드
+Object.defineProperty(this, 'store', {
+  set(v) { this._store = v; for (const p of this._processors) p.store = v; }
+});
+```
+
+`mm.store = stubStore` 형태의 테스트 mock 교체 한 줄이 facade와 모든 processor에 자동 전파된다. 테스트 격리와 프로덕션 DI 모두 동일 코드 경로로 처리된다.
+
+---
+
+## Idempotency (v2.11.0, migration-034-v2.16.0-bundle)
+
+`fragments` 테이블에 `idempotency_key TEXT NULL` 컬럼이 추가되고 partial UNIQUE 인덱스 2종이 생성되었다.
+
+| 인덱스 | 조건 | 목적 |
+|--------|------|------|
+| `uq_frag_idem_tenant` | `idempotency_key IS NOT NULL AND key_id IS NOT NULL` | API key 테넌트 내 유일성 |
+| `uq_frag_idem_master` | `idempotency_key IS NOT NULL AND key_id IS NULL` | master 테넌트 내 유일성 |
+
+`remember()` 호출 시 `params.idempotencyKey`가 있으면 `FragmentReader.findByIdempotencyKey(key, keyId)`로 기존 파편을 조회한다. 파편이 존재하면 새로 생성하지 않고 기존 id를 반환하며 `idempotent: true` 필드를 포함한다. 파편이 없으면 정상 저장 후 `idempotency_key` 컬럼에 기록한다.
+
+---
+
+## Rate Limit 헤더 (v2.12.0)
+
+`QuotaChecker.getUsage(keyId)`는 API 키별 파편 사용량을 조회한다. 응답 결과는 모듈 레벨 인메모리 Map에 10초 TTL로 캐싱되어 반복 DB 조회를 차단한다 (상한 1000 항목).
+
+HTTP 응답 헤더 주입 지점: `lib/handlers/mcp-handler.js`의 `sendJSON` 호출 직전에 `QuotaChecker.getUsage()` 결과를 읽어 아래 3개 헤더를 설정한다.
+
+```
+X-RateLimit-Limit:     <fragment_limit>
+X-RateLimit-Remaining: <fragment_limit - used>
+X-RateLimit-Resource:  fragments
+```
+
+`keyId === null` (master) 또는 `limit === null` (무제한 키)이면 헤더를 생략한다.
+
+---
+
+## 원격 CLI (v2.12.0, M1)
+
+`lib/cli/_mcpClient.js`는 CLI 서브명령(`recall`, `remember`, `inspect` 등)이 로컬 서버 없이 원격 MCP 엔드포인트에 접속할 수 있도록 한다.
+
+접속 흐름:
+1. `initialize` 요청 전송 → `Mcp-Session-Id` 헤더 수신 (세션 생성)
+2. 이후 모든 `tools/call` 요청에 동일 `Mcp-Session-Id` 재사용 (세션 재사용)
+
+인증: `Authorization: Bearer <KEY>` 헤더 사용.
+
+CLI 전역 플래그: `--remote <URL>`, `--key <KEY>`. Local-only 명령(serve, migrate, cleanup, backfill, health, update)은 원격 경유를 지원하지 않는다.
 
 ---
 
@@ -271,6 +353,7 @@ erDiagram
         text phase "케이스 단계"
         text resolution_status "open / resolved / wont_fix"
         text assertion_status "observed / inferred / verified / rejected"
+        text affect "neutral / frustration / confidence / surprise / doubt / satisfaction"
     }
     fragment_links {
         bigserial id PK
@@ -363,6 +446,7 @@ erDiagram
 | phase | TEXT | | 케이스의 현재 단계 레이블 |
 | resolution_status | TEXT | CHECK | 케이스 해결 상태: open(진행 중) / resolved(해결됨) / wont_fix(미해결 종료) |
 | assertion_status | TEXT | CHECK | 파편 주장 신뢰도: observed(기본, 직접 관측) / inferred(추론) / verified(검증됨) / rejected(기각됨) |
+| affect | TEXT | CHECK, DEFAULT 'neutral' | 기억 당시의 정서 상태 태그. neutral / frustration / confidence / surprise / doubt / satisfaction. migration-034-v2.16.0-bundle 추가 |
 
 인덱스 목록: content_hash(UNIQUE), topic(B-tree), type(B-tree), keywords(GIN), importance DESC(B-tree), created_at DESC(B-tree), agent_id(B-tree), linked_to(GIN), (ttl_tier, created_at)(B-tree), source(B-tree), verified_at(B-tree), is_anchor WHERE TRUE(부분 인덱스), valid_from(B-tree), (topic, type) WHERE valid_to IS NULL(부분 인덱스), id WHERE valid_to IS NULL(부분 UNIQUE). `idx_fragments_key_workspace` (key_id, workspace) WHERE valid_to IS NULL (복합 부분 인덱스 — API 키 + workspace 동시 필터 최적화), `idx_fragments_workspace` (workspace) WHERE workspace IS NOT NULL AND valid_to IS NULL (workspace 단독 전체 조회용 부분 인덱스).
 
@@ -908,3 +992,127 @@ CHANGELOG.md v2.8.0 Migration Guide 8단계 참조.
 v2.7.0 9260ff2 tenant isolation 수정이 놓친 SessionLinker.wouldCreateCycle 사각지대를 봉인했다. `store.isReachable` 4-arg 시그니처로 확장, 호출부 4곳(`autoLinkSessionFragments`, `ReflectProcessor`, `MemoryManager._autoLinkSessionFragments`, `_wouldCreateCycle`) 전수 전파. 회귀 가드는 `tests/unit/tenant-isolation.test.js`에 6건 신규.
 
 ---
+
+## v2.9.0 신규 컴포넌트
+
+### ModeRegistry
+
+`lib/memory/ModeRegistry.js`. Mode preset JSON을 로드하여 세션별 도구 필터와 skill_guide_override를 적용한다.
+
+- preset 정의 파일: `config/modes/*.json` (recall-only, write-only, onboarding, audit)
+- `X-Memento-Mode` 헤더 또는 `initialize.params.mode`에서 preset 이름을 읽음
+- `api_keys.default_mode` 컬럼(migration-034)으로 키 단위 기본값 설정 가능
+- tools/list 응답을 preset에 따라 필터링하여 허용 도구만 노출
+
+```
+요청 헤더/params.mode
+    │
+    ▼
+ModeRegistry.resolve(mode)
+    │
+    ├── tools/list 필터 (허용 도구 목록 반환)
+    └── get_skill_guide override (onboarding 모드 시 첫 섹션 강제 지정)
+```
+
+### RecallSuggestionEngine
+
+`lib/memory/RecallSuggestionEngine.js`. recall 호출 결과를 분석하여 `_suggestion` 메타 필드를 생성한다.
+
+- SearchEventRecorder가 기록한 search_events 테이블을 재활용
+- fail-open 설계: 엔진 내부 오류 시 `_suggestion: null`로 폴백하여 주 검색 경로에 영향 없음
+- 4개 감지 규칙: `repeat_query`, `empty_result_no_context`, `large_limit_no_budget`, `no_type_filter_noisy`
+- `_suggestion` 객체: `{code, message, recommendedTool, recommendedArgs}` 또는 null
+
+### LocalTransformersEmbedder
+
+`lib/tools/embedding-transformers.js`. `@huggingface/transformers` 라이브러리를 사용하는 로컬 임베딩 생성기.
+
+- `EMBEDDING_PROVIDER=transformers` 환경변수로 활성화
+- 기본 모델: `Xenova/multilingual-e5-small` (384차원, Q8 quantized, ~60MB)
+- 대안 모델: `Xenova/bge-m3` (1024차원, ~280MB, 다국어 고정밀)
+- 싱글톤 파이프라인 캐시: 첫 호출에만 모델을 로드, 이후 재사용
+- 차원 불일치 시 서버 시작 시 `check-embedding-consistency.js`가 자동 검출하여 프로세스 중단
+- OpenAI/Gemini 등 API 기반 provider와 상호 배타. 전환 시 DB 스키마 `scripts/post-migrate-flexible-embedding-dims.js` + 임베딩 백필 필수
+
+```
+EMBEDDING_PROVIDER=transformers
+    │
+    ▼
+LocalTransformersEmbedder.generate(text)
+    ├── pipeline('feature-extraction', EMBEDDING_MODEL) — 싱글톤 캐시
+    ├── mean pooling + L2 normalize
+    └── Float32Array → number[] 변환
+```
+
+상세 전환 절차: [docs/embedding-local.md](embedding-local.md)
+
+### LLM Dispatcher — Codex CLI / Copilot CLI (v2.9.0)
+
+기존 gemini-cli / openai / anthropic / ... 체인에 두 provider가 추가되었다.
+
+```
+LLM_PRIMARY=gemini-cli
+    │
+    ▼
+[gemini-cli] → 실패 → [anthropic] → 실패 → [codex-cli] → 실패 → [copilot-cli] → ...
+```
+
+**codex-cli provider** (`lib/llm/providers/codex-cli.js`):
+1. `runCodexCLI(prompt, outputFile)` — `codex exec --full-auto --skip-git-repo-check -o FILE` 실행
+2. 결과 파일 읽기 → JSON 파싱 → 응답 반환
+- 환경변수 `OPENAI_API_KEY` 또는 Codex CLI 자체 설정 파일로 인증
+
+**copilot-cli provider** (`lib/llm/providers/copilot-cli.js`):
+- GitHub Copilot CLI(`gh copilot suggest`)를 래퍼로 호출
+- `extractJsonBlock()` 유틸리티로 응답 말미의 통계/배너 텍스트 제거 후 JSON 추출
+
+**circuit breaker 및 timeout** (`config/memory.js`):
+- `geminiTimeoutMs: 60000` (이전 15000에서 상향). Gemini CLI 대형 프롬프트의 지연 증가 대응
+- circuit breaker 실패 임계(LLM_CB_FAILURE_THRESHOLD=5), OPEN 지속(LLM_CB_OPEN_DURATION_MS=60000)은 기존과 동일
+
+**LLM_PRIMARY 허용값 전체 목록** (v2.9.0):
+`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`
+
+### 검색 파이프라인 — _suggestion 후처리
+
+검색 파이프라인 최종 단계에 `_suggestion` 주입이 추가되었다.
+
+```
+L1 + L2 + L2.5 + L3
+    │
+    ▼
+RRF 병합 + 복합 랭킹
+    │
+    ▼
+Symbolic hook chain (v2.8.0)
+    │
+    ▼
+RecallSuggestionEngine.analyze()  ← v2.9.0 신규
+    │
+    ├── _suggestion 생성 (감지된 규칙 있을 때)
+    └── null (정상 패턴일 때)
+    │
+    ▼
+응답 반환 (fragments + _suggestion)
+```
+
+### DB 스키마 — v2.9.0 마이그레이션
+
+**migration-034: api_keys.default_mode**
+- `TEXT DEFAULT NULL` 컬럼 추가
+- 허용값: `recall-only`, `write-only`, `onboarding`, `audit`, NULL(제한 없음)
+- Admin console에서 키 편집 시 설정
+
+**migration-034-v2.16.0-bundle: fragments.affect**
+- `TEXT DEFAULT 'neutral'` 컬럼 추가
+- CHECK 제약: `affect IN ('neutral', 'frustration', 'confidence', 'surprise', 'doubt', 'satisfaction')`
+- remember() 파라미터 `affect`로 저장, recall() 파라미터 `affect`로 필터링
+
+---
+
+## 관련 문서
+
+- [로컬 임베딩 설정](embedding-local.md) — LocalTransformersEmbedder 전환 절차 상세
+- [통합/E2E 테스트](../tests/integration/README.md) — 테스트 환경 구성 및 실행 방법
+- [API Reference](api-reference.md) — MCP 도구 파라미터 및 응답 필드 상세
+- [설정 레퍼런스](configuration.md) — 환경변수 전체 목록 및 LLM provider 설정

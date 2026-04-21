@@ -1,4 +1,16 @@
 #!/usr/bin/env bash
+# run-e2e-tests.sh — Docker 기반 E2E 테스트 러너
+#
+# 작성자: 최진호
+# 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
+#
+# 목적: docker-compose.test.yml의 postgres-test 컨테이너를 기동하고
+#       migration을 적용한 뒤 tests/e2e/*.test.js를 실행한다.
+# 호출 조건: CI/CD 파이프라인 또는 대규모 리팩터링 후 회귀 검증
+# 빈도: CI마다 또는 릴리즈 전
+# 의존: Docker, docker compose, .env.test, PostgreSQL
+# 관련 문서: docs/operations/maintenance.md
+
 set -euo pipefail
 
 echo "[e2e] PostgreSQL 컨테이너 기동..."

@@ -23,7 +23,12 @@ server.js  (HTTP server)
     +-- lib/tool-registry.js  18 memory tool registration and routing
     |
     +-- lib/memory/
-            +-- MemoryManager.js          Business logic orchestration layer (904 lines, singleton). Entry point for remember/recall/forget/amend. Actual logic delegated to Processor/Builder below
+            +-- MemoryManager.js          Business logic orchestration facade (259 lines, singleton). Routes 15 public methods to 4 processors via 1-line delegation. Shared properties synchronized via _installSharedSync
+            +-- processors/
+            |   +-- MemoryRememberer.js   Dedicated remember() (~695 lines). Includes R12 TDZ hotfix: atomic branch relocated after fragment creation
+            |   +-- MemoryRecaller.js     Dedicated recall() (~405 lines). fields pick step, depth filter, CBR path
+            |   +-- MemoryReflector.js    Dedicated reflect() (~89 lines). session summary->fragment conversion
+            |   +-- MemoryLinker.js       Dedicated link()/forget()/amend() (~80 lines)
             +-- ContextBuilder.js         Dedicated context() logic. Assembles Core/Working/Anchor Memory composite context
             +-- ReflectProcessor.js       Dedicated reflect() logic. summary->fragment conversion, episode creation, Working Memory cleanup
             +-- BatchRememberProcessor.js Dedicated batchRemember() logic. Phase A (validation) -> B (INSERT) -> C (post-processing) 3-stage
@@ -96,6 +101,11 @@ server.js  (HTTP server)
             +-- migration-029-search-param-thresholds.sql  search_param_thresholds table (SearchParamAdaptor online learning store, key_id NOT NULL DEFAULT -1)
             +-- migration-030-search-param-thresholds-key-text.sql  search_param_thresholds.key_id INTEGER->TEXT conversion (unified with fragments.key_id TEXT type, sentinel -1 -> '-1')
             +-- migration-031-content-hash-per-key.sql  Global content_hash UNIQUE index replaced with 2 partial unique indexes (cross-tenant ON CONFLICT block): uq_frag_hash_master (key_id IS NULL), uq_frag_hash_per_key (key_id IS NOT NULL, composite)
+            +-- migration-032-fragment-claims.sql        Symbolic Memory Layer -- fragment_claims table (v2.8.0)
+            +-- migration-033-symbolic-hard-gate.sql     api_keys.symbolic_hard_gate BOOLEAN DEFAULT false (v2.8.0)
+            +-- migration-034-api-keys-default-mode.sql  api_keys.default_mode TEXT NULL -- per-key Mode preset default (v2.9.0)
+            +-- migration-034-v2.16.0-bundle-fragments-affect.sql       fragments.affect TEXT DEFAULT 'neutral' CHECK 6-enum constraint (v2.9.0)
+            +-- migration-034-v2.16.0-bundle-idempotency-key.sql        fragments.idempotency_key TEXT NULL + 2 partial UNIQUE indexes: (key_id, idempotency_key) WHERE idempotency_key IS NOT NULL AND key_id IS NOT NULL / (idempotency_key) WHERE idempotency_key IS NOT NULL AND key_id IS NULL (v2.11.0)
 ```
 
 Supporting modules:
@@ -190,11 +200,83 @@ scripts/
 +-- backfill-embeddings.js                       Embedding backfill (one-time)
 +-- normalize-vectors.js                         Vector L2 normalization (one-time)
 +-- migrate.js                                   DB migration runner (schema_migrations-based incremental, .env auto-load, pgvector schema auto-detection)
-+-- migration-007-flexible-embedding-dims.js     Embedding dimension migration
++-- post-migrate-flexible-embedding-dims.js      Embedding dimension migration
 +-- cleanup-noise.js                             Bulk cleanup of low-quality/noise fragments (one-time)
 ```
 
 `config/memory.js` is a separate configuration file for the memory system. It holds time-semantic composite ranking weights, stale thresholds, embedding worker settings, context injection, pagination, and GC policies. `config/validate-memory-config.js` is called once at server startup to runtime-validate MEMORY_CONFIG weight sums, ranges, and type constraints. The process is halted on failure.
+
+---
+
+## MemoryManager Facade Decomposition (v2.10.0)
+
+In v2.10.0, MemoryManager was reduced from 1,252 lines to a 259-line thin facade. Business logic was extracted into 4 processors under `lib/memory/processors/`.
+
+```
+MemoryManager (259 lines, facade)
+  +-- MemoryRememberer  (~695 lines) -- remember(), batchRemember()
+  +-- MemoryRecaller    (~405 lines) -- recall(), context()
+  +-- MemoryReflector   ( ~89 lines) -- reflect()
+  +-- MemoryLinker      ( ~80 lines) -- link(), forget(), amend()
+```
+
+Dependency direction: processors -> shared modules (FragmentStore, FragmentSearch, etc.) / external callers -> facade -> processors.
+
+### _installSharedSync Design
+
+The facade constructor initializes 20 shared objects (store, index, factory, search, quotaChecker, etc.) then DI-injects them into 4 processors. It then calls `_installSharedSync()` to wrap each shared property setter in the facade with `Object.defineProperty`.
+
+```js
+// Conceptual code
+Object.defineProperty(this, 'store', {
+  set(v) { this._store = v; for (const p of this._processors) p.store = v; }
+});
+```
+
+A single `mm.store = stubStore` test mock replacement propagates automatically to the facade and all processors. Test isolation and production DI both use the same code path.
+
+---
+
+## Idempotency (v2.11.0, migration-034-v2.16.0-bundle)
+
+A `idempotency_key TEXT NULL` column was added to the `fragments` table with 2 partial UNIQUE indexes.
+
+| Index | Condition | Purpose |
+|-------|-----------|---------|
+| `uq_frag_idem_tenant` | `idempotency_key IS NOT NULL AND key_id IS NOT NULL` | Uniqueness within API key tenant |
+| `uq_frag_idem_master` | `idempotency_key IS NOT NULL AND key_id IS NULL` | Uniqueness within master tenant |
+
+When `remember()` is called with `params.idempotencyKey`, `FragmentReader.findByIdempotencyKey(key, keyId)` looks up the existing fragment. If found, the existing id is returned without creating a new fragment, and `idempotent: true` is included in the response. If not found, the fragment is stored normally and the `idempotency_key` column is recorded.
+
+---
+
+## Rate Limit Headers (v2.12.0)
+
+`QuotaChecker.getUsage(keyId)` queries the fragment usage count per API key. Results are cached in a module-level in-memory Map with 10-second TTL to block repeated DB queries (upper limit: 1,000 entries).
+
+HTTP response header injection point: immediately before the `sendJSON` call in `lib/handlers/mcp-handler.js`, `QuotaChecker.getUsage()` is read and the following 3 headers are set.
+
+```
+X-RateLimit-Limit:     <fragment_limit>
+X-RateLimit-Remaining: <fragment_limit - used>
+X-RateLimit-Resource:  fragments
+```
+
+Headers are omitted when `keyId === null` (master) or `limit === null` (unlimited key).
+
+---
+
+## Remote CLI (v2.12.0, M1)
+
+`lib/cli/_mcpClient.js` allows CLI subcommands (`recall`, `remember`, `inspect`, etc.) to connect to a remote MCP endpoint without a local server.
+
+Connection flow:
+1. Send `initialize` request -> receive `Mcp-Session-Id` header (session creation)
+2. Reuse the same `Mcp-Session-Id` for all subsequent `tools/call` requests (session reuse)
+
+Authentication: `Authorization: Bearer <KEY>` header.
+
+Global CLI flags: `--remote <URL>`, `--key <KEY>`. Local-only commands (serve, migrate, cleanup, backfill, health, update) do not support remote routing.
 
 ---
 
@@ -268,6 +350,7 @@ erDiagram
         text phase "Case phase"
         text resolution_status "open / resolved / wont_fix"
         text assertion_status "observed / inferred / verified / rejected"
+        text affect "neutral / frustration / confidence / surprise / doubt / satisfaction"
     }
     fragment_links {
         bigserial id PK
@@ -360,6 +443,7 @@ The store for all fragments. This is the core table of the system.
 | phase | TEXT | | Case current phase label |
 | resolution_status | TEXT | CHECK | Case resolution status: open (in progress) / resolved (completed) / wont_fix (closed without resolution) |
 | assertion_status | TEXT | CHECK | Fragment assertion confidence: observed (default, directly witnessed) / inferred (derived) / verified (confirmed) / rejected (dismissed) |
+| affect | TEXT | CHECK, DEFAULT 'neutral' | Emotional state tag at memory storage time. neutral / frustration / confidence / surprise / doubt / satisfaction. Added in migration-034-v2.16.0-bundle |
 
 Index list: content_hash (UNIQUE), topic (B-tree), type (B-tree), keywords (GIN), importance DESC (B-tree), created_at DESC (B-tree), agent_id (B-tree), linked_to (GIN), (ttl_tier, created_at) (B-tree), source (B-tree), verified_at (B-tree), is_anchor WHERE TRUE (partial index), valid_from (B-tree), (topic, type) WHERE valid_to IS NULL (partial index), id WHERE valid_to IS NULL (partial UNIQUE). `idx_fragments_key_workspace` (key_id, workspace) WHERE valid_to IS NULL (composite partial index — optimizes simultaneous key + workspace filtering), `idx_fragments_workspace` (workspace) WHERE workspace IS NOT NULL AND valid_to IS NULL (partial index for workspace-only full scans).
 
@@ -905,3 +989,127 @@ Refer to CHANGELOG.md v2.8.0 Migration Guide, 8 steps.
 Seals the blind spot in SessionLinker.wouldCreateCycle that was missed by the v2.7.0 9260ff2 tenant isolation fix. Extended `store.isReachable` to a 4-arg signature; all 4 call sites (`autoLinkSessionFragments`, `ReflectProcessor`, `MemoryManager._autoLinkSessionFragments`, `_wouldCreateCycle`) fully propagated. Regression guard: 6 new test cases in `tests/unit/tenant-isolation.test.js`.
 
 ---
+
+## v2.9.0 New Components
+
+### ModeRegistry
+
+`lib/memory/ModeRegistry.js`. Loads Mode preset JSON and applies per-session tool filters and skill_guide overrides.
+
+- Preset definition files: `config/modes/*.json` (recall-only, write-only, onboarding, audit)
+- Reads the preset name from the `X-Memento-Mode` header or `initialize.params.mode`
+- `api_keys.default_mode` column (migration-034) enables per-key default configuration via admin console
+- Filters tools/list response to expose only allowed tools for the active preset
+
+```
+Request header / params.mode
+    |
+    v
+ModeRegistry.resolve(mode)
+    |
+    +-- tools/list filter (returns allowed tool list)
+    +-- get_skill_guide override (forces first section in onboarding mode)
+```
+
+### RecallSuggestionEngine
+
+`lib/memory/RecallSuggestionEngine.js`. Analyzes recall call results and generates the `_suggestion` meta field.
+
+- Reuses the search_events table recorded by SearchEventRecorder
+- Fail-open design: on internal engine error, falls back to `_suggestion: null` with no impact on the main search path
+- 4 detection rules: `repeat_query`, `empty_result_no_context`, `large_limit_no_budget`, `no_type_filter_noisy`
+- `_suggestion` object: `{code, message, recommendedTool, recommendedArgs}` or null
+
+### LocalTransformersEmbedder
+
+`lib/tools/embedding-transformers.js`. Local embedding generator using the `@huggingface/transformers` library.
+
+- Activated via `EMBEDDING_PROVIDER=transformers` environment variable
+- Default model: `Xenova/multilingual-e5-small` (384 dimensions, Q8 quantized, ~60MB)
+- Alternative model: `Xenova/bge-m3` (1024 dimensions, ~280MB, multilingual high-precision)
+- Singleton pipeline cache: model loaded only on first call, reused thereafter
+- On dimension mismatch, `check-embedding-consistency.js` detects the issue at server startup and halts the process
+- Mutually exclusive with API-based providers (OpenAI, Gemini, etc.). Switching requires running `scripts/post-migrate-flexible-embedding-dims.js` + embedding backfill
+
+```
+EMBEDDING_PROVIDER=transformers
+    |
+    v
+LocalTransformersEmbedder.generate(text)
+    +-- pipeline('feature-extraction', EMBEDDING_MODEL) -- singleton cache
+    +-- mean pooling + L2 normalize
+    +-- Float32Array -> number[] conversion
+```
+
+For detailed migration steps, see [docs/embedding-local.md](embedding-local.md).
+
+### LLM Dispatcher -- Codex CLI / Copilot CLI (v2.9.0)
+
+Two new providers have been added to the existing gemini-cli / openai / anthropic / ... chain.
+
+```
+LLM_PRIMARY=gemini-cli
+    |
+    v
+[gemini-cli] -> fail -> [anthropic] -> fail -> [codex-cli] -> fail -> [copilot-cli] -> ...
+```
+
+**codex-cli provider** (`lib/llm/providers/codex-cli.js`):
+1. `runCodexCLI(prompt, outputFile)` -- runs `codex exec --full-auto --skip-git-repo-check -o FILE`
+2. Reads output file -> JSON parse -> return response
+- Authenticates via `OPENAI_API_KEY` or Codex CLI's own configuration file
+
+**copilot-cli provider** (`lib/llm/providers/copilot-cli.js`):
+- Calls GitHub Copilot CLI (`gh copilot suggest`) as a wrapper
+- Uses `extractJsonBlock()` utility to strip trailing statistics/banner text before JSON extraction
+
+**Circuit breaker and timeout** (`config/memory.js`):
+- `geminiTimeoutMs: 60000` (increased from 15000). Accommodates latency growth with large Gemini CLI prompts
+- Circuit breaker failure threshold (LLM_CB_FAILURE_THRESHOLD=5) and OPEN duration (LLM_CB_OPEN_DURATION_MS=60000) remain unchanged
+
+**Complete LLM_PRIMARY allowed values** (v2.9.0):
+`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`
+
+### Search Pipeline -- _suggestion Post-Processing
+
+A `_suggestion` injection step has been added at the end of the search pipeline.
+
+```
+L1 + L2 + L2.5 + L3
+    |
+    v
+RRF merge + composite ranking
+    |
+    v
+Symbolic hook chain (v2.8.0)
+    |
+    v
+RecallSuggestionEngine.analyze()  <- v2.9.0 new
+    |
+    +-- _suggestion generated (when a rule fires)
+    +-- null (normal pattern)
+    |
+    v
+Response returned (fragments + _suggestion)
+```
+
+### DB Schema -- v2.9.0 Migrations
+
+**migration-034: api_keys.default_mode**
+- Adds `TEXT DEFAULT NULL` column
+- Allowed values: `recall-only`, `write-only`, `onboarding`, `audit`, NULL (unrestricted)
+- Set via the key editor in the admin console
+
+**migration-034-v2.16.0-bundle: fragments.affect**
+- Adds `TEXT DEFAULT 'neutral'` column
+- CHECK constraint: `affect IN ('neutral', 'frustration', 'confidence', 'surprise', 'doubt', 'satisfaction')`
+- Stored via the `affect` parameter in remember(), filtered via the `affect` parameter in recall()
+
+---
+
+## Related Documents
+
+- [Local Embedding Setup](embedding-local.md) -- Detailed LocalTransformersEmbedder migration steps
+- [Integration/E2E Tests](../tests/integration/README.md) -- Test environment setup and execution
+- [API Reference](api-reference.en.md) -- MCP tool parameters and response fields
+- [Configuration Reference](configuration.en.md) -- Complete environment variable list and LLM provider setup

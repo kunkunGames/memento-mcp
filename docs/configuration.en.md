@@ -23,6 +23,9 @@
 | CONSOLIDATE_INTERVAL_MS | 21600000 | Auto-maintenance (consolidate) interval (ms). Default 6 hours |
 | EVALUATOR_MAX_QUEUE | 100 | MemoryEvaluator queue size cap (older jobs dropped on overflow) |
 | OAUTH_TRUSTED_ORIGINS | (none) | Additional OAuth redirect_uri trusted domains (comma-separated, origin level). Added on top of default trusted domains (claude.ai, chatgpt.com, platform.openai.com, copilot.microsoft.com, gemini.google.com). Only specify additional origins to allow |
+| MCP_STRICT_ORIGIN | false | When `true`, enables strict Origin header validation (DNS rebinding defense). Requests from Origins not in the allowlist (`OAUTH_TRUSTED_ORIGINS` + `ALLOWED_ORIGINS` + default trusted domains) are rejected with 403. Requests without an Origin header (CLI/curl) are always allowed. **opt-in** — defaults to `false` to preserve existing behavior |
+| MCP_REJECT_NONAPIKEY_OAUTH | true | Set to `false` to allow `is_api_key=false` OAuth tokens (backward compatibility). Default `true` — non-API-key OAuth tokens create a `keyId=null` session with master-level access to all fragments. API-key-based OAuth tokens (`is_api_key=true`) and Bearer ACCESS_KEY direct use are unaffected |
+| MCP_ALLOW_AUTO_DCR_REGISTER | false | Set to `true` to allow auto-registration of unregistered `client_id` in `/authorize` (legacy behavior). Default `false` — enforces RFC 7591 `POST /register` endpoint for client registration |
 | OAUTH_ALLOWED_REDIRECT_URIS | (none) | OAuth redirect_uri exact-match allowed list (comma-separated). Operates independently of OAUTH_TRUSTED_ORIGINS |
 | DEFAULT_DAILY_LIMIT | 10000 | Default daily call limit when creating API keys |
 | DEFAULT_PERMISSIONS | read,write | Default permissions when creating API keys |
@@ -37,6 +40,14 @@
 | ENABLE_RECONSOLIDATION | false | Enable ReconsolidationEngine. When true, tool_feedback and contradicts detection dynamically update fragment_links weight/confidence |
 | ENABLE_SPREADING_ACTIVATION | false | Enable SpreadingActivation. When true, the contextText parameter in recall proactively activates related fragments. Recommended to measure latency impact before enabling |
 | ENABLE_PATTERN_ABSTRACTION | false | Enable pattern abstraction. Planned for activation after sufficient data accumulation (not yet implemented) |
+| MEMENTO_REMEMBER_ATOMIC | false | When true, atomizes the quota check + INSERT in remember() into a single transaction. Sequence: BEGIN → api_keys FOR UPDATE (quota re-validation) → INSERT → COMMIT, fully eliminating TOCTOU. The R12 hotfix in v2.10.1 resolved a TDZ bug; the atomic path now works correctly. false (default) performs only a pre-check and is appropriate for environments with low concurrent request volume |
+
+#### CLI Remote Access (v2.12.0 M1)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| MEMENTO_CLI_REMOTE | (none) | Remote MCP server URL used when the CLI `--remote` flag is not specified. Example: `https://memento.anchormind.net/mcp` |
+| MEMENTO_CLI_KEY | (none) | API key for remote server authentication, used when the CLI `--key` flag is not specified |
 
 #### Symbolic Memory (v2.8.0, opt-in)
 
@@ -90,7 +101,23 @@ When REDIS_ENABLED=true, state is stored in Redis; otherwise in-memory.
 
 ##### Supported Providers
 
-gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai
+gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**
+
+**codex-cli**: Executes `codex exec --full-auto --skip-git-repo-check -o FILE`. Authenticates via `OPENAI_API_KEY` or Codex CLI config file. Specify in `LLM_FALLBACKS` as:
+```json
+[{"provider": "codex-cli"}]
+```
+
+**copilot-cli**: Wraps GitHub Copilot CLI (`gh copilot suggest`). Requires `gh` CLI and a Copilot subscription:
+```json
+[{"provider": "copilot-cli"}]
+```
+
+**geminiTimeoutMs**: The `morphemeIndex.geminiTimeoutMs` value in `config/memory.js` has been raised from 15000ms to **60000ms**. In Gemini CLI and Ollama Cloud environments, measured response latency frequently reached 20–40s, causing repeated "all LLM providers failed" errors. This adjustment resolves that pattern.
+
+The value is passed directly to the `geminiCLIJson(userPrompt, { timeoutMs: cfg.geminiTimeoutMs })` call inside `MorphemeIndex.tokenize()`. When tokenize fails, no morphemes are extracted and the L3 morpheme search path (the full-text search leg of recall) degrades gracefully via `_fallbackTokenize`. Consequently, timeout-induced tokenize failures translate directly to reduced recall result quality.
+
+**buildChain ordering logic** (`lib/llm/index.js:38–68`): An entries array is constructed from `LLM_PRIMARY` followed by `LLM_FALLBACKS` in declaration order. A `seen` Set removes duplicate providers, and each provider's `isAvailable()` check determines whether it is included in the chain. If `LLM_PRIMARY` also appears in `LLM_FALLBACKS`, the fallback config object takes precedence. A provider that fails `isAvailable()` is excluded from the chain and the next provider is tried immediately. The resulting chain order corresponds 1:1 with the env variable declaration order.
 
 For detailed operational guidance, see `docs/operations/llm-providers.md`.
 
@@ -112,6 +139,7 @@ Sliding window: each time an OAuth-authenticated request arrives, the Redis TTL 
 | SSE_HEARTBEAT_INTERVAL_MS | 25000 | SSE heartbeat ping interval (ms). Used to verify client connection is alive |
 | SSE_MAX_HEARTBEAT_FAILURES | 3 | Consecutive heartbeat send failure tolerance. Session is automatically terminated when exceeded. Detects write backpressure and network errors |
 | SSE_RETRY_MS | 5000 | SSE reconnection wait time (ms). Sent to client via the `retry:` field |
+| MCP_IDLE_REFLECT_HOURS | 24 | Idle session intermediate autoReflect threshold (hours). Sessions inactive for this duration receive a mid-session reflect during cleanup to prevent memory loss. |
 
 ### PostgreSQL
 
@@ -155,7 +183,7 @@ POSTGRES_* prefixes take precedence over DB_* prefixes. Both formats can be mixe
 | Variable | Default | Description |
 |----------|---------|-------------|
 | OPENAI_API_KEY | (none) | OpenAI API key. Used when `EMBEDDING_PROVIDER=openai` |
-| EMBEDDING_PROVIDER | openai | Embedding provider. `openai` \| `gemini` \| `ollama` \| `localai` \| `cloudflare` \| `custom` |
+| EMBEDDING_PROVIDER | openai | Embedding provider. `openai` \| `gemini` \| `ollama` \| `localai` \| `cloudflare` \| `custom` \| `transformers` |
 | EMBEDDING_API_KEY | (none) | Generic embedding API key. Falls back to `OPENAI_API_KEY` when unset |
 | EMBEDDING_BASE_URL | (none) | OpenAI-compatible endpoint URL when `EMBEDDING_PROVIDER=custom` |
 | EMBEDDING_MODEL | (provider default) | Embedding model to use. Provider-specific default applied when omitted |
@@ -303,7 +331,7 @@ Switch providers with a single `EMBEDDING_PROVIDER` environment variable. Model,
 
 Embeddings are used for L3 semantic search and automatic link creation.
 
-> Dimension change warning: Changing `EMBEDDING_DIMENSIONS` requires a PostgreSQL schema change. Run `node scripts/migration-007-flexible-embedding-dims.js` followed by `node scripts/backfill-embeddings.js` in order.
+> Dimension change warning: Changing `EMBEDDING_DIMENSIONS` requires a PostgreSQL schema change. Run `node scripts/post-migrate-flexible-embedding-dims.js` followed by `node scripts/backfill-embeddings.js` in order.
 
 ---
 
@@ -335,7 +363,7 @@ GEMINI_API_KEY=AIza...
 
 ```bash
 EMBEDDING_DIMENSIONS=3072 DATABASE_URL=$DATABASE_URL \
-  node scripts/migration-007-flexible-embedding-dims.js
+  node scripts/post-migrate-flexible-embedding-dims.js
 DATABASE_URL=$DATABASE_URL node scripts/backfill-embeddings.js
 ```
 
@@ -396,7 +424,7 @@ Find your Account ID on the Cloudflare dashboard → account home, lower right. 
 
 ```bash
 EMBEDDING_DIMENSIONS=384 DATABASE_URL=$DATABASE_URL \
-  node scripts/migration-007-flexible-embedding-dims.js
+  node scripts/post-migrate-flexible-embedding-dims.js
 DATABASE_URL=$DATABASE_URL node scripts/backfill-embeddings.js
 ```
 
@@ -421,6 +449,35 @@ EMBEDDING_API_KEY=my-key
 EMBEDDING_MODEL=my-model
 EMBEDDING_DIMENSIONS=1024
 ```
+
+---
+
+### Local Transformers Embedding (v2.9.0)
+
+> Generates embeddings locally without an API key. Uses the `@huggingface/transformers` library and runs on CPU alone without a GPU.
+
+```env
+EMBEDDING_PROVIDER=transformers
+EMBEDDING_MODEL=Xenova/multilingual-e5-small   # default (384 dimensions, ~60MB)
+# EMBEDDING_MODEL=Xenova/bge-m3                # alternative (1024 dimensions, ~280MB, multilingual high-precision)
+EMBEDDING_DIMENSIONS=384                        # must be specified explicitly when different from the default schema (1536)
+```
+
+**Note**: Mutually exclusive with API-based providers (openai, gemini, etc.). Switching requires a DB schema change; mismatched dimensions from existing embeddings will degrade search precision.
+
+Switching procedure:
+```bash
+# 1. Update schema dimensions (example: 1536 -> 384)
+EMBEDDING_DIMENSIONS=384 DATABASE_URL=$DATABASE_URL \
+  node scripts/post-migrate-flexible-embedding-dims.js
+
+# 2. Regenerate embeddings for existing fragments
+DATABASE_URL=$DATABASE_URL node scripts/backfill-embeddings.js
+```
+
+At server startup, `check-embedding-consistency.js` automatically validates that the DB vector dimensions match `EMBEDDING_DIMENSIONS`. A mismatch halts the process to guarantee integrity.
+
+For details, see [docs/embedding-local.md](embedding-local.md).
 
 ---
 
@@ -601,6 +658,7 @@ EMBEDDING_DIMENSIONS=768
 | Cloudflare Workers AI (bge-small) | 384 | `EMBEDDING_PROVIDER=cloudflare` | Yes (10K req/day) |
 | Cloudflare Workers AI (bge-large) | 1024 | `EMBEDDING_PROVIDER=cloudflare` | Yes (10K req/day) |
 | Custom compatible server | Variable | `EMBEDDING_PROVIDER=custom` | -- |
+| HuggingFace Transformers (multilingual-e5-small) | 384 | `EMBEDDING_PROVIDER=transformers` | Fully free (local) |
 | Cohere embed-v4.0 | 1536 | Code replacement | None |
 | Voyage AI voyage-3.5 | 1024 | Code replacement | None |
 | Mistral mistral-embed | 1024 | Code replacement | None |
@@ -644,6 +702,45 @@ Run `npm run migrate` to execute unapplied migrations in order. History is manag
 | 028 | migration-028-composite-indexes.sql | Composite indexes: (agent_id, topic, created_at DESC) for topic fallback search optimization, (key_id, agent_id, importance DESC) WHERE valid_to IS NULL for API key isolation query optimization. Replaces migration-016's idx_frag_agent_topic |
 | 030 | migration-030-search-param-thresholds-key-text.sql | search_param_thresholds.key_id type INTEGER->TEXT conversion. Fixes bug where SearchParamAdaptor adaptive learning was broken after fragments.key_id changed to TEXT(UUID) in migration-027. Preserves existing sentinel -1 as '-1' string |
 | 031 | migration-031-content-hash-per-key.sql | Drops global UNIQUE index (idx_frag_hash) on content_hash, replaces with 2 partial unique indexes to block cross-tenant ON CONFLICT paths. Master-only (key_id IS NULL) `uq_frag_hash_master`, API key (key_id IS NOT NULL) composite `uq_frag_hash_per_key` |
+| 032 | migration-032-fragment-claims.sql | Symbolic Memory Layer fragment_claims table (v2.8.0) |
+| 033 | migration-033-symbolic-hard-gate.sql | api_keys.symbolic_hard_gate BOOLEAN (v2.8.0) |
+| 034 | migration-034-api-keys-default-mode.sql | api_keys.default_mode TEXT NULL — per-key Mode preset default (v2.9.0) |
+| 035 | migration-034-v2.16.0-bundle-fragments-affect.sql | fragments.affect TEXT DEFAULT 'neutral' CHECK 6-enum (v2.9.0) |
+
+---
+
+## Mode Preset Configuration (v2.9.0)
+
+Locks the session operation scope to a preset. Three configuration paths are available, applied in the following priority order:
+
+1. **Per-request header** (highest priority): `X-Memento-Mode: <preset>`
+2. **initialize parameter**: `{ "method": "initialize", "params": { "mode": "<preset>" } }`
+3. **Per-key default** (admin console): `api_keys.default_mode` column (migration-034)
+
+| Preset | Description | Representative excluded_tools | Recommended context |
+|--------|-------------|-------------------------------|---------------------|
+| `recall-only` | Read-only. Write tools blocked | remember, batch_remember, amend, forget, link, reflect, memory_consolidate | Shared API keys with read-only grants; read-only dashboard integrations |
+| `write-only` | Write-only. Search tools blocked | recall, context, reconstruct_history, graph_explore, fragment_history, search_traces, memory_stats | CI/cron jobs that only record results. Minimizes token consumption by hiding unnecessary retrieval tools |
+| `onboarding` | New-user guidance. All tools exposed + beginner guide injected | (none — excluded_tools: []) | Auto-entered when fragment count is below 50; automatically transitions to normal mode once that threshold is exceeded |
+| `audit` | Audit/compliance. Master key only. All writes blocked | remember, batch_remember, amend, forget, link, reflect | Operational audits, history reconstruction, memory statistics. `requiresMaster: true` |
+
+Each preset's `fixed_tools` (explicit exposure list), `skill_guide_override` (tool guide override), and `requiresMaster` fields are defined in `lib/memory/modes/<preset>.json`.
+
+When mode is unset or NULL, only the existing RBAC-based permission system applies.
+
+See also: [API Reference — Mode Preset](api-reference.en.md#mode-preset-v290)
+
+---
+
+## MCP Connection Settings
+
+### Token-Based Session Reuse (v2.9.0)
+
+Even if a client reconnects without `Mcp-Session-Id`, the server automatically recovers the existing session as long as the same Bearer token is presented. Useful when a session ID is lost or when reconnecting after a network interruption.
+
+- Operates transparently on the client side: no additional configuration required
+- On recovery, session context is preserved: keyId, groupKeyIds, workspace, permissions, etc.
+- Valid only within the token TTL (`OAUTH_TOKEN_TTL_SECONDS`)
 
 ---
 
@@ -677,3 +774,12 @@ DATABASE_URL=postgresql://user:pass@host:port/db npm run test:e2e
 ```bash
 npm run test:ci          # npm test + test:e2e
 ```
+
+---
+
+## Related Documents
+
+- [Local Embedding Setup](embedding-local.md) — Detailed switching procedure for `EMBEDDING_PROVIDER=transformers`
+- [Integration/E2E Tests](../tests/integration/README.md) — Test environment setup and execution
+- [API Reference](api-reference.en.md) — MCP tool parameters and Mode preset details
+- [Architecture](architecture.en.md) — New component dependencies and DB schema

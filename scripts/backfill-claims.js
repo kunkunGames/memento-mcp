@@ -1,9 +1,24 @@
 #!/usr/bin/env node
 /**
- * backfill-claims.js — 기존 fragments 에 ClaimExtractor 적용 후 fragment_claims 적재
+ * backfill-claims.js — 기존 파편에 ClaimExtractor 소급 실행
  *
  * 작성자: 최진호
- * 작성일: 2026-04-15
+ * 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
+ *
+ * 목적: v2.7.0 이전 코퍼스에 ClaimExtractor를 소급 실행하여 fragment_claims 테이블을 채운다.
+ *       실행 이후 신규 파편은 RememberPostProcessor 8단계 hook에서 실시간 추출되므로
+ *       이 스크립트는 기존 코퍼스 전용이다.
+ * 호출 조건: Phase 1 Shadow(MEMENTO_SYMBOLIC_SHADOW=true) 활성화 전 1회
+ * 빈도: 일회성
+ * 의존: DATABASE_URL, OPENAI_API_KEY(또는 로컬 transformers provider)
+ * 관련 문서: docs/operations/backfill-claims.md, docs/operations/maintenance.md
+ *
+ * 옵션: --batch-size N, --rate-limit-ms N, --tenant-key KEY, --limit N,
+ *       --min-confidence 0..1, --dry-run, --verbose
+ * 전제: 실행 전 반드시 --dry-run으로 추출 볼륨과 tenant_violations 수치를 확인한다.
+ *
+ * 작성자: 최진호
+ * 수정일: 2026-04-19
  *
  * 목적: Phase 1 Shadow 진입 시 기존 v2.7.0 파편(미추출 상태)을 대상으로
  *       claim 을 소급 생성한다. 실행 시점에 새로 들어오는 파편은 RememberPostProcessor

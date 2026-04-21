@@ -1,8 +1,15 @@
 /**
- * 기존 임베딩 벡터 일괄 L2 정규화 마이그레이션
- * 일회성 실행 스크립트: node scripts/normalize-vectors.js
+ * normalize-vectors.js — 기존 임베딩 벡터 일괄 L2 정규화
  *
- * 작성자: 최진호 / 2026-03-03
+ * 작성자: 최진호
+ * 작성일: 2026-03-03
+ * 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
+ *
+ * 목적: agent_memory.fragments 테이블의 모든 임베딩 벡터를 L2 정규화한다.
+ * 호출 조건: 임베딩 제공자 전환 직후 또는 신규 설치 후 1회 실행. 멱등 실행 가능.
+ * 빈도: 조건부 1회
+ * 의존: DATABASE_URL
+ * 관련 문서: docs/INSTALL.md#업그레이드-기존-설치, docs/operations/maintenance.md
  */
 
 import pg from "pg";

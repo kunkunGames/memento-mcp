@@ -1,8 +1,25 @@
 #!/usr/bin/env node
 /**
- * 경량 DB 마이그레이션 러너
- * agent_memory.schema_migrations 테이블에 적용 이력을 기록하고
- * 미적용 migration-NNN-*.sql 파일만 순서대로 실행한다.
+ * migrate.js — 경량 DB 마이그레이션 러너
+ *
+ * 작성자: 최진호
+ * 수정일: 2026-04-20 (v2.12.0 문서 현행화 반영)
+ *
+ * 목적: lib/memory/migration-NNN-*.sql 파일을 번호 순으로 자동 탐지하여 실행한다.
+ *       agent_memory.schema_migrations 테이블에 적용 이력을 기록하며 미적용 파일만 순서대로 실행한다.
+ * 호출 조건: 서버 업그레이드 또는 신규 설치 후 DB 스키마 적용 시
+ * 빈도: 버전 업그레이드 시 1회
+ * 의존: DATABASE_URL 환경변수 (또는 POSTGRES_* 개별 항목), PostgreSQL, pgvector
+ * 관련 문서: docs/INSTALL.md#업그레이드-기존-설치, docs/operations/maintenance.md
+ *
+ * 트랜잭션 제약:
+ *   각 migration 파일은 BEGIN/COMMIT 래퍼로 감싸 원자적으로 실행된다.
+ *   따라서 migration-034-v2.16.0-bundle처럼 CREATE UNIQUE INDEX를 포함하는 파일은 트랜잭션 내에서 실행되며,
+ *   CREATE INDEX CONCURRENTLY는 사용할 수 없다.
+ *   수백만 건 이상의 대규모 테이블에서 잠금 최소화가 필요하다면,
+ *   npm run migrate 실행 전에 해당 인덱스를 CONCURRENTLY 옵션으로 수동 실행한다.
+ *   IF NOT EXISTS 가드로 인해 수동 적용 후 자동 실행 시 SKIP된다.
+ *   상세 가이드: docs/INSTALL.md "migration-034-v2.16.0-bundle CONCURRENTLY 옵션" 섹션 참조.
  */
 import fs   from "node:fs";
 import path from "node:path";

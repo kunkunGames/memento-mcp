@@ -1,6 +1,6 @@
 {
   "name": "memento-mcp",
-  "version": "2.8.0",
+  "version": "3.0.0",
   "license": "Apache-2.0",
   "description": "Fragment-Based Memory MCP Server",
   "main": "server.js",
@@ -12,8 +12,9 @@
     "start": "node server.js",
     "test": "npm run test:jest && npm run test:unit:node",
     "test:jest": "node --experimental-vm-modules node_modules/jest/bin/jest.js --runInBand --selectProjects unit",
-    "test:unit:node": "node --experimental-test-module-mocks --test 'tests/unit/*.test.js' 'tests/unit/**/*.test.js'",
+    "test:unit:node": "MEMENTO_METRICS_DEFAULT=off node --experimental-test-module-mocks --test 'tests/unit/*.test.js' 'tests/unit/**/*.test.js'",
     "test:integration": "node --test tests/integration/*.test.js tests/e2e/*.test.js",
+    "test:integration:llm": "MEMENTO_METRICS_DEFAULT=off node --test --test-concurrency=1 tests/integration/llm-cli-smoke.test.js tests/integration/llm-timeout.test.js tests/integration/morpheme-llm-real.test.js tests/integration/llm-chain-real.test.js",
     "test:e2e": "node --test tests/e2e/*.test.js",
     "test:e2e:local": "bash scripts/run-e2e-tests.sh",
     "test:ci": "npm test && npm run test:e2e",

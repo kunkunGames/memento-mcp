@@ -65,6 +65,26 @@ Even when Redis is disabled (`REDIS_ENABLED=false`) or connection fails, the ser
 
 Two authentication methods are available. Streamable HTTP authenticates via `Authorization: Bearer <MEMENTO_ACCESS_KEY>` header on the `initialize` request, then maintains the session. Legacy SSE authenticates via `/sse?accessKey=<MEMENTO_ACCESS_KEY>` query parameter.
 
+### HTTP Response Headers — Rate Limit (v2.12.0)
+
+When an API key with a configured quota (fragment_limit) calls MCP tools, the following headers are included in the response.
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Total allowed fragment count set for the key |
+| `X-RateLimit-Remaining` | Current remaining fragment count |
+| `X-RateLimit-Resource` | Resource identifier being measured (`fragments`) |
+
+Headers are omitted for master key (keyId=null) or keys with limit=null. Usage cache TTL is 10 seconds.
+
+Client consumption example:
+```
+HTTP/1.1 200 OK
+X-RateLimit-Limit: 5000
+X-RateLimit-Remaining: 4880
+X-RateLimit-Resource: fragments
+```
+
 ### RBAC (Role-Based Access Control)
 
 All MCP tool calls must pass RBAC validation.
@@ -76,6 +96,64 @@ All MCP tool calls must pass RBAC validation.
 - When a forget/amend/link request targets a fragment owned by another tenant (different API key), a `"Fragment not found"` error is returned. Isolation is enforced at the SQL level via `key_id` conditions, so the fragment's existence is never exposed.
 
 Accessing a protected resource without authentication returns `401 Unauthorized` with a `WWW-Authenticate: Bearer resource_metadata="</.well-known/oauth-protected-resource URL>"` header.
+
+### Mode Preset (v2.9.0)
+
+The session behavior mode can be set via the `X-Memento-Mode` header or `params.mode` in the `initialize` request. Setting `api_keys.default_mode` in the admin console pins a per-key default.
+
+| Preset | Description | Allowed Tools |
+|--------|-------------|---------------|
+| `recall-only` | Read-only session. Blocks memory write/modify tools. For search-only agents. | recall, context, memory_stats, graph_explore, fragment_history, reconstruct_history, search_traces, get_skill_guide, tool_feedback |
+| `write-only` | Write-only session. Blocks recall and context. For data ingestion pipelines. | remember, batch_remember, forget, amend, link, reflect |
+| `onboarding` | New user guidance session. Forces get_skill_guide as the first exposed tool. | All (get_skill_guide surfaced first) |
+| `audit` | Read and trace-only session. Blocks all write tools. For auditing and compliance. | recall, context, memory_stats, graph_explore, fragment_history, reconstruct_history, search_traces |
+
+Via HTTP header:
+```
+X-Memento-Mode: recall-only
+```
+
+Via `initialize` parameters:
+```json
+{
+  "method": "initialize",
+  "params": {
+    "mode": "recall-only",
+    "protocolVersion": "2025-06-18"
+  }
+}
+```
+
+### Session Reuse (v2.9.0)
+
+Token-based session reuse is enabled. Even when a client reconnects without an `Mcp-Session-Id`, the server automatically recovers the existing session if the same Bearer token is presented. This is transparent to the client and requires no additional configuration.
+
+### tools/list Response — meta Field (v2.9.0)
+
+Each tool entry in the `tools/list` response now includes a `meta` field.
+
+```json
+{
+  "name": "recall",
+  "description": "...",
+  "inputSchema": { ... },
+  "meta": {
+    "capabilities": ["search", "pagination", "caseMode"],
+    "riskLevel": "read",
+    "requiresMaster": false,
+    "beta": false,
+    "idempotent": true
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `capabilities` | string[] | List of feature tags supported by this tool |
+| `riskLevel` | string | Tool risk tier. `read` / `write` / `admin` |
+| `requiresMaster` | boolean | Whether the tool requires the master key (MEMENTO_ACCESS_KEY) |
+| `beta` | boolean | Whether this is an experimental feature. When true, the interface may change |
+| `idempotent` | boolean | Whether repeated calls with the same parameters produce no side effects |
 
 ---
 
@@ -227,10 +305,56 @@ MCP resources for real-time queries on the current state of the memory system.
 | agentId | string | - | Agent ID |
 | minImportance | number | - | Minimum importance filter (0-1). Only fragments with importance at or above this value are returned. |
 | isAnchor | boolean | - | When true, returns only anchor (pinned) fragments. Useful for querying core knowledge. |
+| affect | string \| string[] | - | Affect tag filter. Single string or array. Returns only fragments with the matching affect value. Valid values: neutral, frustration, confidence, surprise, doubt, satisfaction |
+| fields | string[] | - | Fragment fields to include in the response. Returns all fields if not specified. Supported keys: id / content / type / topic / keywords / importance / created_at / access_count / confidence / linked / explanations / workspace / context_summary / case_id / valid_to / affect / ema_activation |
 
 ### Response Fragment Fields (key fields)
 
 Each returned fragment includes a `key_id` field. When called with a master key, fragments owned by other API keys may also be returned, identifiable by their `key_id` value. When called with an API key, only fragments owned by that key (`key_id` match) or group-shared fragments are returned.
+
+`affect` field: The emotional state tag attached to the fragment at storage time, returned as stored.
+
+`_meta` (v2.11.0+): A metadata wrapper added at the top level of recall/context responses. Provides the same values as the legacy top-level fields (_searchEventId, _memento_hint, _suggestion) in a structured form.
+
+```json
+{
+  "_meta": {
+    "searchEventId": 1234,
+    "hints": ["Consider adding contextText to activate SpreadingActivation"],
+    "suggestion": { "code": "empty_result_no_context", "recommendedTool": "recall" }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `_meta.searchEventId` | Search event ID to reference when calling tool_feedback |
+| `_meta.hints` | Array of search improvement hints from the system |
+| `_meta.suggestion` | RecallSuggestionEngine hint object (null when no issue detected) |
+
+The legacy top-level `_searchEventId` / `_memento_hint` / `_suggestion` fields remain for backward compatibility in v2.11.0 but are **DEPRECATED — scheduled for removal in v2.13.0**. Clients should migrate to the `_meta` path.
+
+`_suggestion` (v2.9.0+, DEPRECATED — removal in v2.13.0, use `_meta.suggestion`): A hint object generated by the RecallSuggestionEngine based on analysis of the current search pattern. `null` when no issue is detected.
+
+```json
+{
+  "_suggestion": {
+    "code": "empty_result_no_context",
+    "message": "No results found. Passing contextText with your current work context activates SpreadingActivation to surface related fragments proactively.",
+    "recommendedTool": "recall",
+    "recommendedArgs": { "contextText": "brief summary of current task context" }
+  }
+}
+```
+
+`_suggestion` detection rules:
+
+| code | Trigger condition | Recommendation |
+|------|-------------------|----------------|
+| `repeat_query` | Same keywords/text query repeated 3+ times within 30 minutes | Add depth or type filter |
+| `empty_result_no_context` | 0 results and contextText is absent | Add contextText or expand keywords |
+| `large_limit_no_budget` | pageSize=50 requested and tokenBudget not specified | Explicitly set tokenBudget to control response size |
+| `no_type_filter_noisy` | 10+ fragments returned without type filter and no depth specified | Add type or depth filter |
 
 `explanation` (v2.8.0+, included only when `MEMENTO_SYMBOLIC_EXPLAIN=true`): Explains why the fragment was included in the search results, using up to 3 reason codes.
 
@@ -330,9 +454,36 @@ Fragment-based memory storage. Store exactly one atomic fact in 1-2 sentences. I
 | phase | string | - | Work phase (e.g., planning, debugging, verification) |
 | resolutionStatus | string | - | Task resolution status (open, resolved, abandoned) |
 | assertionStatus | string | - | Fragment confidence level (observed, inferred, verified, rejected). Default: observed |
+| affect | string | - | Emotional state tag at the time of storing this memory. Default: neutral. Valid values: neutral, frustration, confidence, surprise, doubt, satisfaction |
+| idempotencyKey | string | - | Retry-safe identifier (max 128 characters). Repeated calls with the same value within the same key_id scope return the existing fragment id without creating a new fragment. For client retry and network deduplication. |
+| dryRun | boolean | - | When true, returns an execution plan without applying changes. Inspect quota and conflict check results before fragment creation. |
+
+`affect` usage example:
+```json
+{
+  "content": "Confirmed REDIS_SENTINEL_ENABLED was missing as the cause of Redis connection failure.",
+  "topic": "redis",
+  "type": "error",
+  "affect": "frustration"
+}
+```
 
 ### Response
 
+dryRun=true response (no actual storage):
+```json
+{
+  "dryRun": true,
+  "simulated": {
+    "fragment": { "content": "...", "type": "error", "topic": "redis" },
+    "conflicts": [],
+    "validation_warnings": [],
+    "quota": { "used": 120, "limit": 5000, "remaining": 4880 }
+  }
+}
+```
+
+Normal response:
 ```json
 {
   "fragment": {
@@ -365,7 +516,7 @@ Store multiple fragments at once (for bulk memory input). Batch INSERTs up to 20
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| fragments | object[] | Y | Array of fragments to store (max 200). Each item includes content (string, required), topic (string, required), type (string, required), importance (number), keywords (string[]), workspace (string). |
+| fragments | object[] | Y | Array of fragments to store (max 200). Each item includes content (string, required), topic (string, required), type (string, required), importance (number), keywords (string[]), workspace (string), idempotencyKey (string, max 128 chars). |
 | workspace | string | - | Batch default workspace. Used for individual fragments without a workspace. Key's default_workspace applied if not specified. |
 | agentId | string | - | Agent ID (for RLS isolation) |
 
@@ -383,6 +534,7 @@ Delete fragment memory. Either id or topic is required. Permanent-tier fragments
 | topic | string | - | Delete all fragments with the given topic |
 | force | boolean | - | Force-delete permanent fragments (default false) |
 | agentId | string | - | Agent ID |
+| dryRun | boolean | - | When true, returns target fragment info and connected link count without actually deleting. |
 
 ---
 
@@ -399,6 +551,7 @@ Establish a relationship between two fragments. Specifies causal, resolution, co
 | relationType | string | - | Relation type (related, caused_by, resolved_by, part_of, contradicts). Default related. |
 | agentId | string | - | Agent ID |
 | weight | number | - | Relation weight (0-1, default 1) |
+| dryRun | boolean | - | When true, returns cycle and ownership check results without creating the link. |
 
 ---
 
@@ -420,6 +573,7 @@ Update the content or metadata of an existing fragment. Selectively modifies whi
 | supersedes | boolean | - | When true, explicitly supersedes the existing fragment (creates superseded_by link and lowers importance) |
 | assertionStatus | string | - | Change fragment assertion status (observed, inferred, verified, rejected). For fragments with a case_id, changes automatically record verification_passed/verification_failed events. |
 | agentId | string | - | Agent ID |
+| dryRun | boolean | - | When true, returns the expected fragment state after applying the patch without making actual changes. |
 
 ---
 
@@ -475,7 +629,7 @@ Usefulness feedback on tool usage results. Evaluates whether the target tool's r
 | context | string | - | Usage context summary (50 characters max) |
 | session_id | string | - | Session ID |
 | trigger_type | string | - | Trigger type. sampled=hook sampling, voluntary=AI voluntary (default voluntary) |
-| search_event_id | integer | - | _searchEventId returned by the most recent recall. Used for search quality analysis. |
+| search_event_id | integer | - | _searchEventId (or _meta.searchEventId) returned by the most recent recall. Used for search quality analysis. |
 | fragment_ids | string[] | - | Fragment ID list for feedback targets. When provided, activation scores of the specified fragments are adjusted based on the feedback. |
 
 ---
@@ -577,8 +731,97 @@ Search fragments by exact matching (unlike recall's semantic search, uses conten
 
 ---
 
+## Usage Examples
+
+### Sparse response with fields parameter
+
+Return only id, content, importance to reduce token usage:
+
+```bash
+curl -X POST https://pmcp.nerdvana.kr/mcp \
+  -H "Authorization: Bearer $MEMENTO_KEY" \
+  -H "Mcp-Session-Id: $SESSION" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0","id":1,"method":"tools/call",
+    "params":{
+      "name":"recall",
+      "arguments":{
+        "keywords":["nginx","502"],
+        "fields":["id","content","importance","type"]
+      }
+    }
+  }'
+```
+
+### Retry-safe storage with idempotencyKey
+
+No duplicate creation when resending after a network failure:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "remember",
+    "arguments": {
+      "content": "Changed nginx upstream port from 8080 to 15001 to resolve 502 error",
+      "topic": "nginx",
+      "type": "procedure",
+      "importance": 0.8,
+      "idempotencyKey": "nginx-fix-2026-04-20-001"
+    }
+  }
+}
+```
+
+Re-call response with the same `idempotencyKey`:
+```json
+{ "success": true, "id": "frag-abc123", "idempotent": true }
+```
+
+### Confirm plan before storage with dryRun=true
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "remember",
+    "arguments": {
+      "content": "Redis Sentinel connection failure — REDIS_SENTINEL_ENABLED not set",
+      "topic": "redis",
+      "type": "error",
+      "dryRun": true
+    }
+  }
+}
+```
+
+Response:
+```json
+{
+  "dryRun": true,
+  "simulated": {
+    "fragment": { "content": "Redis Sentinel connection failure — REDIS_SENTINEL_ENABLED not set", "type": "error", "topic": "redis" },
+    "conflicts": [],
+    "validation_warnings": [],
+    "quota": { "used": 120, "limit": 5000, "remaining": 4880 }
+  }
+}
+```
+
+---
+
 ## Recommended Usage Flow
 
 - Session start -- Call `context()` to load core memories. Preferences, error patterns, and procedures are restored. If unreflected sessions exist, a hint is displayed.
 - During work -- Save important decisions, errors, and procedures with `remember()`. Similar fragments are automatically linked at storage time. Use `recall()` to search past experience when needed. After resolving an error, clean up the error fragment with `forget()` and record the resolution procedure with `remember()`.
 - Session end -- Use `reflect()` to persist session content as structured fragments. Even without manual invocation, AutoReflect runs automatically on session end/expiration.
+
+---
+
+## Related Documents
+
+- [Local Embedding Setup](embedding-local.md) -- Detailed instructions for switching to `EMBEDDING_PROVIDER=transformers`
+- [Integration/E2E Tests](../tests/integration/README.md) -- Test environment setup and execution
+- [Architecture](architecture.en.md) -- Component dependencies and search pipeline
+- [Configuration Reference](configuration.en.md) -- Complete environment variable list and MEMORY_CONFIG

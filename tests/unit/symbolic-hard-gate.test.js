@@ -26,7 +26,16 @@ import assert            from "node:assert/strict";
  */
 async function makeManager(opts = {}) {
   const { MemoryManager } = await import("../../lib/memory/MemoryManager.js");
-  const mm                = new MemoryManager();
+
+  /**
+   * lib/config.js가 dotenv/config를 import하며 .env의 MEMENTO_REMEMBER_ATOMIC=true가
+   * 단위 테스트로 유출될 수 있다. 이 스위트의 관심사는 symbolic hard/soft gate이지
+   * atomic remember 경로가 아니므로, MemoryManager.remember 호출 직전 런타임으로 차단한다.
+   * (R12 TDZ 핫픽스 이후 atomic 분기가 복구되며 stub 누락 간섭이 표면화됨)
+   */
+  delete process.env.MEMENTO_REMEMBER_ATOMIC;
+
+  const mm = new MemoryManager();
 
   /** SYMBOLIC_CONFIG frozen 우회 — 인스턴스 레벨 플래그로 policy 활성화 */
   mm._policyGatingEnabled = true;

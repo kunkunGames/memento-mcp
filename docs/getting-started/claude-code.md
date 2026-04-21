@@ -2,7 +2,7 @@
 title: "Claude Code Configuration"
 date: 2026-03-13
 author: 최진호
-updated: 2026-04-16
+updated: 2026-04-20
 ---
 
 # Claude Code Configuration
@@ -150,8 +150,49 @@ Invoke-RestMethod -Method Post -Uri "http://localhost:57332/mcp" -Headers $heade
   exec /home/USER/.nvm/versions/node/vXX.XX.X/bin/node server.js
   ```
 
+## _meta 응답 구조 (v2.11.0)
+
+v2.11.0부터 `recall` 및 `context` 응답에 `_meta` 래퍼 필드가 추가됐다.
+
+```json
+{
+  "_meta": {
+    "searchEventId": "evt-abc123",
+    "hints": ["embedding provider is openai"],
+    "suggestion": "try adding contextText for better results"
+  },
+  "fragments": [...]
+}
+```
+
+기존 `_searchEventId` 등 top-level 필드는 v2.11.0~v2.12.x 기간 동안 mirror로 유지된다. v2.12.0 이후 버전에서 제거될 예정이므로 클라이언트는 `_meta` 내부 필드로 전환한다.
+
+## dryRun 사전 시뮬레이션 (v2.12.0 M5)
+
+`remember`, `link`, `forget`, `amend` 도구에서 `dryRun: true`를 설정하면 실제 저장 없이 실행 결과를 미리 확인할 수 있다.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "remember",
+    "arguments": {
+      "topic": "infra",
+      "type": "fact",
+      "content": "nginx 포트 443 정상 응답 확인",
+      "dryRun": true
+    }
+  }
+}
+```
+
+응답에 `dryRun: true`와 예상 저장 결과가 포함된다. 실제 DB 변경은 발생하지 않는다.
+
 ## 권장 사항
 
 - access key는 가능한 환경 변수나 안전한 비밀 저장소로 관리한다
 - 서버 설치와 Claude Code 연동은 별도 단계로 이해한다
 - 세션 자동화 전에 먼저 수동 `context` 호출이 정상 동작하는지 확인한다
+- recall 응답에서 `_searchEventId`를 직접 참조하던 코드는 `_meta.searchEventId`로 전환한다

@@ -2,7 +2,7 @@
 title: "Windows WSL2 Setup"
 date: 2026-03-13
 author: 최진호
-updated: 2026-03-13
+updated: 2026-04-20
 ---
 
 # Windows WSL2 Setup
@@ -105,3 +105,23 @@ Invoke-RestMethod -Method Get -Uri "http://localhost:57332/health"
 ```
 
 오류가 나면 [Troubleshooting](troubleshooting.md)을 확인한다.
+
+## 9. CLI 원격 접속 설정 (v2.12.0 M1)
+
+WSL 환경에서는 Bash 문법으로 환경변수를 설정한다.
+
+```bash
+# 환경변수 설정 (현재 셸)
+export MEMENTO_CLI_REMOTE=https://memento.anchormind.net/mcp
+export MEMENTO_CLI_KEY=mmcp_xxx
+
+# 설정 후 CLI 사용
+node bin/memento.js stats
+node bin/memento.js recall "검색어"
+
+# 일회성 실행
+MEMENTO_CLI_REMOTE=https://memento.anchormind.net/mcp MEMENTO_CLI_KEY=mmcp_xxx \
+  node bin/memento.js stats --format json
+```
+
+WSL 안에서 실행하는 CLI는 Linux Bash 문법을 그대로 사용한다. Windows PowerShell 문법(`$env:`)은 WSL 터미널에서 사용하지 않는다.

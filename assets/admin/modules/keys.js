@@ -10,7 +10,7 @@ import { api }                           from "./api.js";
 import { showToast, showModal, closeModal } from "./ui.js";
 import { fmt, fmtDate, loadingHtml }     from "./format.js";
 
-function renderKeyKpiRow(keys) {
+export function renderKeyKpiRow(keys) {
   const total    = keys.length;
   const active   = keys.filter(k => k.status === "active").length;
   const inactive = total - active;
@@ -50,7 +50,7 @@ function renderKeyKpiRow(keys) {
   return grid;
 }
 
-function renderKeyTable(keys) {
+export function renderKeyTable(keys) {
   const wrap = document.createElement("div");
   wrap.className = "glass-panel flex-1 flex flex-col min-h-0";
 
@@ -214,7 +214,7 @@ function renderKeyTable(keys) {
   return wrap;
 }
 
-function renderKeyInspector(key, container) {
+export function renderKeyInspector(key, container) {
   const panel = document.createElement("aside");
   panel.className = "w-96 bg-surface-container-high border-l border-white/5 flex flex-col p-6 gap-6 relative overflow-y-auto";
   panel.id = "key-inspector";
