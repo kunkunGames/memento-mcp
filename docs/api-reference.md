@@ -129,6 +129,43 @@ X-Memento-Mode: recall-only
 
 토큰 기반 세션 재사용이 활성화되어 있다. 클라이언트가 `Mcp-Session-Id` 없이 재연결하더라도 동일 Bearer 토큰이면 서버가 기존 세션을 자동으로 복구한다. 클라이언트 측에는 투명하게 동작하며 별도 설정이 필요하지 않다.
 
+### POST /session/rotate (v2.15.0)
+
+세션 ID 탈취 의심 시 진행 중 상태를 유지한 채 세션 식별자만 재발급한다. Redis에 저장된 세션 데이터는 그대로 보존되고 ID만 교체되므로 기억 파편과 MCP 연결 상태에 영향 없다.
+
+요청:
+
+```http
+POST /session/rotate HTTP/1.1
+Authorization: Bearer <API key or master key>
+Mcp-Session-Id: <대상 sessionId>
+Origin: https://example.nerdvana.kr
+Content-Type: application/json
+
+{ "reason": "suspected_leak" }
+```
+
+응답 (200):
+
+```json
+{
+  "ok": true,
+  "oldSessionId": "aabbcc11-...-8899ddee",
+  "newSessionId": "ffeedd22-...-3344ccbb",
+  "reason": "suspected_leak",
+  "rotatedAt": "2026-04-21T12:34:56.789Z"
+}
+```
+
+정책:
+
+- 인증: `Authorization: Bearer` 필수. 대상 세션 소유권이 일치하지 않으면 403
+- CSRF 방어: `Origin` 헤더 필수. 누락 또는 허용 목록 외 Origin이면 403
+- Rate limit: IP당 분당 `MEMENTO_ROTATE_RATE_LIMIT_PER_MIN` 회 (기본 5). 초과 시 429
+- `reason` 필드는 감사 로그용으로 최대 128자. 지정하지 않으면 `explicit_rotate`
+- 메트릭: `mcp_session_rotation_total{reason}` 카운터 + `mcp_rotate_rate_limited_total` 카운터
+- CLI: `memento-mcp session rotate <sessionId>` 서브명령으로 동일 기능 호출. 자세한 사용법은 `docs/cli.md` 참조
+
 ### tools/list 응답 — meta 필드 (v2.9.0)
 
 각 도구의 `tools/list` 응답 항목에 `meta` 필드가 추가되었다.
@@ -333,9 +370,9 @@ API 키의 일일 호출 제한을 변경한다. 마스터 키 인증 필요.
 | `_meta.hints` | 시스템이 제안하는 검색 개선 힌트 배열 |
 | `_meta.suggestion` | RecallSuggestionEngine 생성 힌트 객체 (감지된 문제 없으면 null) |
 
-기존 top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드는 하위 호환을 위해 v2.11.0에서도 동일 값으로 반환되지만 **v2.13.0에서 제거 예정 (DEPRECATED)** 이다. 클라이언트는 `_meta` 경로로 마이그레이션해야 한다.
+기존 top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드는 하위 호환을 위해 v3.0.0에서도 동일 값으로 mirror 반환되지만 **v3.1.0에서 제거 예정 (DEPRECATED)** 이다. 클라이언트는 `_meta` 경로로 마이그레이션해야 한다.
 
-`_suggestion` (v2.9.0+, DEPRECATED — v2.13.0 제거 예정, `_meta.suggestion` 사용 권장): RecallSuggestionEngine이 현재 검색 패턴을 분석하여 생성한 힌트 객체. 감지된 문제가 없으면 `null`이다.
+`_suggestion` (v2.9.0+, DEPRECATED — v3.1.0 제거 예정, `_meta.suggestion` 사용 권장): RecallSuggestionEngine이 현재 검색 패턴을 분석하여 생성한 힌트 객체. 감지된 문제가 없으면 `null`이다.
 
 ```json
 {

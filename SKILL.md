@@ -2,13 +2,13 @@
 
 AI 에이전트가 Memento MCP 기억 서버를 최대 효율로 활용하기 위한 기술 레퍼런스.
 
-## 현재 버전: v2.12.0
+## 현재 버전: v3.0.0
 
-v2.12.0은 원격 CLI, X-RateLimit 헤더, dryRun 파라미터를 추가했다. v2.11.0은 _meta 래퍼, sparse fields, idempotencyKey를 도입했다. v2.10.0은 내부 구조를 processors 계층으로 분해했다. 모든 신규 기능은 기본 비활성 또는 opt-in이므로 업그레이드 시 회귀는 없다. 하위의 `v2.9.0`, `v2.8.0 Symbolic Memory`, `v2.7.0 Breaking Changes` 섹션은 해당 버전 이전에서 업그레이드하는 경우에도 여전히 유효하다.
+v3.0.0은 v2.8.0 태그 이후 누적된 11개 incremental 빌드(v2.8.1 ~ v2.16.0)를 umbrella 릴리즈로 통합한 결과다. Admin Metrics Dashboard, 원격 CLI, X-RateLimit 헤더, dryRun, idempotencyKey, _meta 응답 래퍼, sparse fields, Mode preset, Affective tagging, 로컬 transformers.js 임베딩, LLM provider 폴백 체인, 세션 관리 CLI, session_rotate, claude.ai/ChatGPT/Copilot/Gemini OAuth DCR-less 호환, MCP 2025-06-18 스펙 준수가 모두 포함된다. 모든 신규 기능은 기본 비활성 또는 opt-in이므로 v2.8.0에서 직접 업그레이드해도 회귀가 없다. 하위의 `v2.8.0 Symbolic Memory`, `v2.7.0 Breaking Changes` 섹션은 해당 버전 이전에서 업그레이드하는 경우에도 여전히 유효하다. 도입 시점이 v2.x로 표기된 하위 "활용 가이드" 섹션들은 incremental 추적을 위한 참조이며 v3.0.0에 모두 포함된다.
 
-### Deprecation 공지 (v2.11.0 ~)
+### Deprecation 공지 (v3.0.0 ~)
 
-recall / context 응답의 top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드는 v2.12.x 마지막 릴리즈를 끝으로 v2.13.0에서 제거된다. v2.11.0부터 동일 값이 `_meta.searchEventId` / `_meta.hints` / `_meta.suggestion`에도 동시 제공(mirror)된다. 지금 바로 `_meta.*` 경로로 전환할 것.
+recall / context 응답의 top-level `_searchEventId` / `_memento_hint` / `_suggestion` 필드는 v3.0.0부터 `_meta.searchEventId` / `_meta.hints` / `_meta.suggestion`으로 이관되어 동일 값이 mirror 제공된다. top-level 필드는 v3.1.0에서 제거된다. 지금 바로 `_meta.*` 경로로 전환할 것.
 
 ---
 
@@ -70,7 +70,7 @@ const hint    = res._meta.hints;           // signal + trigger
 const suggest = res._meta.suggestion;      // recommendedTool + recommendedArgs
 ```
 
-top-level `_searchEventId` / `_memento_hint` / `_suggestion`은 동일 값이 mirror 제공되지만 v2.13.0에서 제거된다. `_meta.*` 경로를 사용할 것.
+top-level `_searchEventId` / `_memento_hint` / `_suggestion`은 동일 값이 mirror 제공되지만 v3.1.0에서 제거된다. `_meta.*` 경로를 사용할 것.
 
 #### fields 파라미터 (sparse fieldsets)
 

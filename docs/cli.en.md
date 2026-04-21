@@ -67,6 +67,7 @@ Flags available for all subcommands.
 | `recall <query>` | Terminal recall | Yes |
 | `remember <content>` | Terminal remember | Yes |
 | `inspect <id>` | Fragment detail + 1-hop links | Yes |
+| `session <sub>` | Session list / show / delete / rotate (master key required) | Yes |
 | `update [--execute] [--redetect]` | Check and apply updates (dry-run by default) | No |
 
 ---
@@ -279,6 +280,55 @@ Help:
 
 ```bash
 node bin/memento.js inspect --help
+```
+
+### session
+
+Inspects active sessions, force-closes them, or rotates their IDs. All subcommands require the master key (`MEMENTO_ACCESS_KEY`). In remote mode (`--remote` / `--key`) the CLI calls the Admin HTTP API directly.
+
+Four subcommands.
+
+```bash
+# Active session list (default limit 50)
+memento-mcp session list [--limit N] [--workspace X] [--format table|json|csv]
+
+# Single session detail (keyId, createdAt, lastAccessedAt, expiresAt, heartbeat)
+memento-mcp session show <sessionId>
+
+# Force-close a session (autoReflect included)
+memento-mcp session delete <sessionId>
+
+# Rotate session ID (session fixation defense)
+memento-mcp session rotate <sessionId> [--reason "suspected_leak"]
+```
+
+`session rotate` rebinds only the ID while preserving the Redis-stored session state. In-progress work and memory fragments are unaffected. `reason` is up to 128 chars of audit-log text (default `explicit_rotate`).
+
+Rotate endpoint policy:
+
+- HTTP: `POST /session/rotate` (body: `{ "reason": "..." }`)
+- Auth: `Authorization: Bearer <API key or master key>` plus `Mcp-Session-Id` header for target session
+- CSRF guard: `Origin` header mandatory; missing Origin returns 403
+- Rate limit: `MEMENTO_ROTATE_RATE_LIMIT_PER_MIN` per IP per minute (default 5); exceeding returns 429
+- Metric: `mcp_session_rotation_total` (label: `reason`)
+
+The CLI surfaces `HTTP 429` on stderr when the rate limit is exceeded. The same limit applies to remote mode.
+
+Example output (list, table format):
+
+```
+SESSION ID                       KEY ID    WORKSPACE  CREATED              LAST ACCESSED        TTL (min)
+----------------------------------------------------------------------------------------------------------
+aabbcc11-2233-4455-6677-8899ddee  default   paysvc     2026-04-21T10:12:03  2026-04-21T12:34:56  41520
+bbccdd22-3344-5566-7788-99aaeeff  mmcp_xx   -          2026-04-21T11:00:00  2026-04-21T12:30:00  41500
+```
+
+Use `--help` to inspect subcommand-level options.
+
+```bash
+memento-mcp session --help
+memento-mcp session list --help
+memento-mcp session rotate --help
 ```
 
 ### update

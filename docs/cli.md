@@ -68,6 +68,7 @@ node bin/memento.js stats
 | `recall <query>` | 터미널 recall | 예 |
 | `remember <content>` | 터미널 remember | 예 |
 | `inspect <id>` | 파편 상세 + 1-hop 링크 | 예 |
+| `session <sub>` | 세션 list / show / delete / rotate (master key 필요) | 예 |
 | `update [--execute] [--redetect]` | 업데이트 확인 및 적용 (기본 dry-run) | 아니오 |
 
 ---
@@ -280,6 +281,55 @@ node bin/memento.js inspect frag-00abc123 --remote https://memento.anchormind.ne
 
 ```bash
 node bin/memento.js inspect --help
+```
+
+### session
+
+활성 세션을 조회하고 강제 종료하거나 ID를 재발급한다. 모든 서브명령은 master key(`MEMENTO_ACCESS_KEY`)를 요구한다. 원격 모드(`--remote` / `--key`)로 지정하면 Admin HTTP API를 직접 호출한다.
+
+서브명령 4종.
+
+```bash
+# 활성 세션 목록 (기본 limit 50)
+memento-mcp session list [--limit N] [--workspace X] [--format table|json|csv]
+
+# 단일 세션 상세 (keyId, createdAt, lastAccessedAt, expiresAt, heartbeat)
+memento-mcp session show <sessionId>
+
+# 세션 강제 종료 (autoReflect 포함)
+memento-mcp session delete <sessionId>
+
+# 세션 ID 회전 (session fixation 대응)
+memento-mcp session rotate <sessionId> [--reason "suspected_leak"]
+```
+
+`session rotate`는 Redis에 저장된 세션 데이터를 유지하면서 ID만 재바인딩한다. 진행 중이던 작업과 기억 파편은 영향 없다. `reason`은 최대 128자 감사 로그용 문자열이며 기본값은 `explicit_rotate`.
+
+rotate 엔드포인트 정책:
+
+- HTTP: `POST /session/rotate` (body: `{ "reason": "..." }`)
+- 인증: `Authorization: Bearer <API key or master key>` + `Mcp-Session-Id` 헤더로 대상 세션 지정
+- CSRF 방어: `Origin` 헤더 필수. 누락 시 403
+- Rate limit: IP당 분당 `MEMENTO_ROTATE_RATE_LIMIT_PER_MIN` (기본 5) 초과 시 429
+- 메트릭: `mcp_session_rotation_total` (label: `reason`)
+
+CLI는 초과 시 표준 에러로 `HTTP 429`를 출력한다. 원격 모드에서도 동일한 rate-limit이 적용된다.
+
+출력 예시 (list, table 포맷):
+
+```
+SESSION ID                       KEY ID    WORKSPACE  CREATED              LAST ACCESSED        TTL (min)
+----------------------------------------------------------------------------------------------------------
+aabbcc11-2233-4455-6677-8899ddee  default   paysvc     2026-04-21T10:12:03  2026-04-21T12:34:56  41520
+bbccdd22-3344-5566-7788-99aaeeff  mmcp_xx   -          2026-04-21T11:00:00  2026-04-21T12:30:00  41500
+```
+
+`--help`로 서브명령별 세부 옵션 확인 가능.
+
+```bash
+memento-mcp session --help
+memento-mcp session list --help
+memento-mcp session rotate --help
 ```
 
 ### update
