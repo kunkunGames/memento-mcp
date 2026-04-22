@@ -1043,32 +1043,39 @@ LocalTransformersEmbedder.generate(text)
 
 For detailed migration steps, see [docs/embedding-local.md](embedding-local.md).
 
-### LLM Dispatcher -- Codex CLI / Copilot CLI (v2.9.0)
+### LLM Dispatcher -- CLI Providers
 
-Two new providers have been added to the existing gemini-cli / openai / anthropic / ... chain.
+In the existing CLI fallback chain, `codex-cli` now carries `model` / `timeoutMs` settings through to the actual CLI call, and `qwen-cli` has been added as a new provider.
 
 ```
 LLM_PRIMARY=gemini-cli
     |
     v
-[gemini-cli] -> fail -> [anthropic] -> fail -> [codex-cli] -> fail -> [copilot-cli] -> ...
+[gemini-cli] -> fail -> [anthropic] -> fail -> [codex-cli] -> fail -> [copilot-cli] -> fail -> [qwen-cli] -> ...
 ```
 
 **codex-cli provider** (`lib/llm/providers/CodexCliProvider.js`):
 1. `runCodexCLI(stdinContent, prompt, options)` -- runs `codex exec --skip-git-repo-check --sandbox read-only --output-last-message FILE`
-2. Reads output file -> JSON parse -> return response
+2. Falls back to provider-config `model` and `timeoutMs` when request options omit them
+3. Reads output file -> JSON parse -> return response
 - Authenticates via `OPENAI_API_KEY` or Codex CLI's own configuration file
 
 **copilot-cli provider** (`lib/llm/providers/CopilotCliProvider.js`):
 - Calls GitHub Copilot CLI (`gh copilot suggest`) as a wrapper
 - Uses `extractJsonBlock()` utility to strip trailing statistics/banner text before JSON extraction
 
+**qwen-cli provider** (`lib/llm/providers/QwenCliProvider.js`):
+- Wraps Alibaba Cloud Qwen Code CLI (`qwen`) in `--output-format text` mode
+- Extracts JSON block from text output
+- Falls back to provider-config `model` / `timeoutMs`, and uses the CLI default model only when `model` is still omitted
+- Requires `qwen auth` authentication
+
 **Circuit breaker and timeout** (`config/memory.js`):
 - `geminiTimeoutMs: 60000` (increased from 15000). Accommodates latency growth with large Gemini CLI prompts
 - Circuit breaker failure threshold (LLM_CB_FAILURE_THRESHOLD=5) and OPEN duration (LLM_CB_OPEN_DURATION_MS=60000) remain unchanged
 
 **Complete LLM_PRIMARY allowed values** (v2.9.0):
-`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`
+`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`, `qwen-cli`
 
 ### Search Pipeline -- _suggestion Post-Processing
 
