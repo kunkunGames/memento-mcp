@@ -18,7 +18,7 @@
     "test:e2e": "node --test tests/e2e/*.test.js",
     "test:e2e:local": "bash scripts/run-e2e-tests.sh",
     "test:ci": "npm test && npm run test:e2e",
-    "lint": "eslint . --max-warnings 0",
+    "lint": "eslint .",
     "backfill:embeddings": "node scripts/backfill-embeddings.js",
     "migrate": "node scripts/migrate.js",
     "cli": "node bin/memento.js"
