@@ -86,9 +86,9 @@ describe("QwenCliProvider", () => {
     assert.deepEqual(result, { ok: true });
   });
 
-  it("callJson: options.timeoutMs와 config.timeoutMs가 없으면 40000ms를 사용한다", async () => {
+  it("callJson: options.timeoutMs와 config.timeoutMs가 없으면 60000ms를 사용한다", async () => {
     mockRunQwenCLI.mock.mockImplementationOnce(async (_stdinContent, _prompt, options) => {
-      assert.equal(options.timeoutMs, 40_000);
+      assert.equal(options.timeoutMs, 60_000);
       return "{\"ok\":true}";
     });
 

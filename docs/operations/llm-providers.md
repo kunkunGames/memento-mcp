@@ -23,16 +23,18 @@ Gemini CLI만 사용. 실패 시 caller가 graceful degradation (AutoReflect ski
 ```bash
 LLM_PRIMARY=gemini-cli
 LLM_FALLBACKS='[
-  {"provider":"codex-cli","model":"gpt-5.3-codex-spark","timeoutMs":40000},
-  {"provider":"qwen-cli","timeoutMs":40000},
-  {"provider":"opencode-cli","timeoutMs":40000},
+  {"provider":"codex-cli","model":"gpt-5.3-codex-spark","timeoutMs":60000},
+  {"provider":"qwen-cli","timeoutMs":60000},
+  {"provider":"opencode-cli","timeoutMs":60000},
   {"provider":"openai","apiKey":"sk-...","model":"gpt-4o-mini"}
 ]'
+LLM_PROVIDER_TIMEOUT_MS=60000
 LLM_CHAIN_TIMEOUT_MS=110000
 ```
 
 Gemini CLI 실패 시 codex-cli → qwen-cli → opencode-cli → openai 순차 시도.
 CLI provider(`gemini-cli`, `codex-cli`, `copilot-cli`, `qwen-cli`, `opencode-cli`)도 `LLM_FALLBACKS`의 `model`, `timeoutMs`를 provider config로 전달받는다.
+`LLM_FALLBACKS[].timeoutMs`가 없으면 `LLM_PROVIDER_TIMEOUT_MS` 기본값(60000ms)이 provider config에 적용된다.
 `LLM_CHAIN_TIMEOUT_MS`는 전체 chain wall-clock deadline이며, 120초 client timeout보다 먼저 실패를 반환하기 위해 운영값은 110초로 둔다.
 
 ## Provider별 필수 필드

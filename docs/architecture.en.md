@@ -1071,7 +1071,7 @@ LLM_PRIMARY=gemini-cli
 - Requires `qwen auth` authentication
 
 **Circuit breaker and timeout** (`config/memory.js`):
-- `geminiTimeoutMs: 40000`. Aligns CLI provider call caps so the primary + fallback chain does not occupy too much of the client timeout window
+- `geminiTimeoutMs: 60000`. Aligns CLI provider call caps so the primary + fallback chain does not occupy too much of the client timeout window
 - Circuit breaker failure threshold (LLM_CB_FAILURE_THRESHOLD=5) and OPEN duration (LLM_CB_OPEN_DURATION_MS=60000) remain unchanged
 
 **Complete LLM_PRIMARY allowed values** (v2.9.0):

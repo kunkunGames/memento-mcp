@@ -80,6 +80,7 @@ Automatic fallback to 15 providers beyond Gemini CLI. Existing behavior is fully
 |----------|---------|-------------|
 | LLM_PRIMARY | gemini-cli | Primary provider name. gemini-cli requires no env configuration |
 | LLM_FALLBACKS | (none) | JSON array. Each element specifies provider/apiKey/model/baseUrl/timeoutMs/extraHeaders |
+| LLM_PROVIDER_TIMEOUT_MS | 60000 | Default per-provider call timeout in ms. `LLM_FALLBACKS[].timeoutMs` takes precedence |
 | LLM_CHAIN_TIMEOUT_MS | 0 | Full LLM provider chain deadline in ms. 0 disables it. The launchd runtime uses 110000 |
 
 ##### Circuit Breaker
@@ -122,11 +123,13 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 
 **opencode-cli**: Wraps OpenCode CLI (`opencode run`). `model`, `agent`, `variant`, and `timeoutMs` can be passed through as provider config:
 ```json
-[{"provider": "opencode-cli", "timeoutMs": 40000}]
+[{"provider": "opencode-cli", "timeoutMs": 60000}]
 [{"provider": "opencode-cli", "model": "github-copilot/claude-sonnet-4.5", "agent": "general", "variant": "low"}]
 ```
 
-**geminiTimeoutMs**: The default `morphemeIndex.geminiTimeoutMs` value in `config/memory.js` is **40000ms**. This cap prevents the primary + fallback chain from spending too much wall-clock time inside a client request timeout, such as 120 seconds.
+**geminiTimeoutMs**: The default `morphemeIndex.geminiTimeoutMs` value in `config/memory.js` is **60000ms**. This cap prevents the primary + fallback chain from spending too much wall-clock time inside a client request timeout, such as 120 seconds.
+
+**provider timeout default**: `LLM_PROVIDER_TIMEOUT_MS` defaults to **60000ms**. If an `LLM_FALLBACKS` entry has `timeoutMs`, that per-provider value wins; otherwise this default is applied to primary and fallback provider config.
 
 The value is passed directly to the `geminiCLIJson(userPrompt, { timeoutMs: cfg.geminiTimeoutMs })` call inside `MorphemeIndex.tokenize()`. When tokenize fails, no morphemes are extracted and the L3 morpheme search path (the full-text search leg of recall) degrades gracefully via `_fallbackTokenize`. Consequently, timeout-induced tokenize failures translate directly to reduced recall result quality.
 

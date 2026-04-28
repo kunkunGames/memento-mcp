@@ -80,6 +80,7 @@ Gemini CLI 외 15개 provider로 자동 fallback 가능. 기본값에서 기존 
 |------|--------|------|
 | LLM_PRIMARY | gemini-cli | 주 provider 이름. gemini-cli는 env 설정 불필요 |
 | LLM_FALLBACKS | (없음) | JSON 배열. 각 원소에 provider/apiKey/model/baseUrl/timeoutMs/extraHeaders 지정 |
+| LLM_PROVIDER_TIMEOUT_MS | 60000 | provider별 기본 호출 timeout(ms). `LLM_FALLBACKS[].timeoutMs`가 있으면 그 값이 우선 |
 | LLM_CHAIN_TIMEOUT_MS | 0 | 전체 LLM provider chain deadline(ms). 0이면 비활성. 운영 launchd는 110000으로 설정 |
 
 ##### Circuit Breaker
@@ -122,11 +123,13 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 
 **opencode-cli**: OpenCode CLI(`opencode run`)를 래퍼로 호출한다. `model`, `agent`, `variant`, `timeoutMs`를 provider config로 전달할 수 있다:
 ```json
-[{"provider": "opencode-cli", "timeoutMs": 40000}]
+[{"provider": "opencode-cli", "timeoutMs": 60000}]
 [{"provider": "opencode-cli", "model": "github-copilot/claude-sonnet-4.5", "agent": "general", "variant": "low"}]
 ```
 
-**geminiTimeoutMs**: `config/memory.js`의 `morphemeIndex.geminiTimeoutMs` 기본값은 **40000ms**다. 이 값은 client timeout(예: 120초) 안에서 primary + fallback 체인이 여러 provider를 시도할 때 전체 대기 시간이 과도하게 늘어나는 것을 막기 위한 상한이다.
+**geminiTimeoutMs**: `config/memory.js`의 `morphemeIndex.geminiTimeoutMs` 기본값은 **60000ms**다. 이 값은 client timeout(예: 120초) 안에서 primary + fallback 체인이 여러 provider를 시도할 때 전체 대기 시간이 과도하게 늘어나는 것을 막기 위한 상한이다.
+
+**provider timeout 기본값**: `LLM_PROVIDER_TIMEOUT_MS`의 기본값은 **60000ms**다. `LLM_FALLBACKS` 원소에 `timeoutMs`가 있으면 개별 provider 설정이 우선하고, 없으면 이 기본값이 primary와 fallback provider config에 적용된다.
 
 이 값은 `MorphemeIndex.tokenize()` 내부의 `geminiCLIJson(userPrompt, { timeoutMs: cfg.geminiTimeoutMs })` 호출에 직접 전달된다. tokenize가 실패하면 형태소 추출 결과가 없으므로 L3 morpheme 검색(recall의 전문 검색 경로)이 비활성화된 것과 동일하게 동작한다 (`_fallbackTokenize` 로 graceful degrade). 따라서 타임아웃 미달로 인한 tokenize 실패는 recall 응답 품질 저하로 직결된다.
 

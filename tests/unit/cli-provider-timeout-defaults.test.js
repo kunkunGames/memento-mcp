@@ -38,9 +38,9 @@ describe("CLI provider default timeoutMs", () => {
     mockRawIsCopilotCli.mock.resetCalls();
   });
 
-  it("gemini-cli: options/config timeout이 없으면 40000ms를 사용한다", async () => {
+  it("gemini-cli: options/config timeout이 없으면 60000ms를 사용한다", async () => {
     mockRunGeminiCLI.mock.mockImplementationOnce(async (_stdinContent, _prompt, options) => {
-      assert.equal(options.timeoutMs, 40_000);
+      assert.equal(options.timeoutMs, 60_000);
       return "{\"ok\":true}";
     });
 
@@ -62,9 +62,9 @@ describe("CLI provider default timeoutMs", () => {
     assert.deepEqual(result, { ok: true });
   });
 
-  it("copilot-cli: options/config timeout이 없으면 40000ms를 사용한다", async () => {
+  it("copilot-cli: options/config timeout이 없으면 60000ms를 사용한다", async () => {
     mockRunCopilotCLI.mock.mockImplementationOnce(async (_prompt, options) => {
-      assert.equal(options.timeoutMs, 40_000);
+      assert.equal(options.timeoutMs, 60_000);
       return "{\"ok\":true}";
     });
 
