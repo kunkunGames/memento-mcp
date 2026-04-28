@@ -101,7 +101,7 @@ When REDIS_ENABLED=true, state is stored in Redis; otherwise in-memory.
 
 ##### Supported Providers
 
-gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**
+gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**, **opencode-cli**
 
 **codex-cli**: Executes `codex exec --skip-git-repo-check --sandbox read-only --output-last-message FILE`. Authenticates via `OPENAI_API_KEY` or the Codex CLI config file. `model` and `timeoutMs` in `LLM_FALLBACKS` are passed through to the actual CLI invocation:
 ```json
@@ -117,6 +117,12 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 ```json
 [{"provider": "qwen-cli"}]
 [{"provider": "qwen-cli", "model": "qwen-max"}]
+```
+
+**opencode-cli**: Wraps OpenCode CLI (`opencode run`). Requires the OpenCode CLI binary plus local authentication/configuration. `model`, `agent`, `variant`, and `timeoutMs` from `LLM_FALLBACKS` are passed through as provider config:
+```json
+[{"provider": "opencode-cli"}]
+[{"provider": "opencode-cli", "model": "github-copilot/claude-sonnet-4.5", "agent": "general", "variant": "low", "timeoutMs": 60000}]
 ```
 
 **geminiTimeoutMs**: The `morphemeIndex.geminiTimeoutMs` value in `config/memory.js` has been raised from 15000ms to **60000ms**. In Gemini CLI and Ollama Cloud environments, measured response latency frequently reached 20–40s, causing repeated "all LLM providers failed" errors. This adjustment resolves that pattern.

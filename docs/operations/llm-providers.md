@@ -5,7 +5,7 @@
 
 ## 개요
 
-memento-mcp는 내부 LLM 호출(AutoReflect, MorphemeIndex, ConsolidatorGC, ContradictionDetector, MemoryEvaluator)에 16개 provider fallback chain을 지원한다. 기본값은 Gemini CLI 단독 사용으로 기존 동작 완전 보존.
+memento-mcp는 내부 LLM 호출(AutoReflect, MorphemeIndex, ConsolidatorGC, ContradictionDetector, MemoryEvaluator)에 17개 provider fallback chain을 지원한다. 기본값은 Gemini CLI 단독 사용으로 기존 동작 완전 보존.
 
 ## 활성화
 
@@ -24,13 +24,14 @@ Gemini CLI만 사용. 실패 시 caller가 graceful degradation (AutoReflect ski
 LLM_PRIMARY=gemini-cli
 LLM_FALLBACKS='[
   {"provider":"codex-cli","model":"gpt-5.3-codex-spark","timeoutMs":120000},
+  {"provider":"opencode-cli","agent":"general","variant":"low","timeoutMs":60000},
   {"provider":"anthropic","apiKey":"sk-ant-...","model":"claude-opus-4-6"},
   {"provider":"openai","apiKey":"sk-...","model":"gpt-4o-mini"}
 ]'
 ```
 
-Gemini CLI 실패 시 codex-cli → anthropic → openai 순차 시도.
-CLI provider(`gemini-cli`, `codex-cli`, `copilot-cli`, `qwen-cli`)도 `LLM_FALLBACKS`의 `model`, `timeoutMs`를 provider config로 전달받는다.
+Gemini CLI 실패 시 codex-cli → opencode-cli → anthropic → openai 순차 시도.
+CLI provider(`gemini-cli`, `codex-cli`, `copilot-cli`, `qwen-cli`, `opencode-cli`)도 `LLM_FALLBACKS`의 `model`, `timeoutMs`를 provider config로 전달받는다. `opencode-cli`는 추가로 `agent`, `variant`를 전달받는다.
 
 ## Provider별 필수 필드
 
@@ -40,6 +41,7 @@ CLI provider(`gemini-cli`, `codex-cli`, `copilot-cli`, `qwen-cli`)도 `LLM_FALLB
 | codex-cli | - | 선택 | - | (CLI 바이너리 + Codex 인증) |
 | copilot-cli | - | - | - | (CLI 바이너리 + GitHub Copilot 인증) |
 | qwen-cli | - | 선택 | - | (CLI 바이너리 + Qwen 인증) |
+| opencode-cli | - | 선택 | - | (CLI 바이너리 + OpenCode 인증/설정) |
 | anthropic | 필수 | 필수 | 선택 | https://api.anthropic.com/v1 |
 | openai | 필수 | 필수 | 선택 | https://api.openai.com/v1 |
 | google-gemini-api | 필수 | 필수 | 선택 | https://generativelanguage.googleapis.com/v1beta |

@@ -101,7 +101,7 @@ REDIS_ENABLED=true면 Redis에 상태 저장, 아니면 in-memory.
 
 ##### 지원 Provider 목록
 
-gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**
+gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**, **opencode-cli**
 
 **codex-cli**: `codex exec --skip-git-repo-check --sandbox read-only --output-last-message FILE` 명령을 실행한다. `OPENAI_API_KEY` 또는 Codex CLI 설정 파일로 인증한다. `LLM_FALLBACKS`의 `model`, `timeoutMs` 설정이 provider config를 통해 실제 CLI 호출까지 전달된다:
 ```json
@@ -117,6 +117,12 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 ```json
 [{"provider": "qwen-cli"}]
 [{"provider": "qwen-cli", "model": "qwen-max"}]
+```
+
+**opencode-cli**: OpenCode CLI(`opencode run`)를 래퍼로 호출한다. OpenCode CLI 설치 및 인증/설정이 필요하다. `LLM_FALLBACKS`의 `model`, `agent`, `variant`, `timeoutMs` 설정을 provider config로 전달한다:
+```json
+[{"provider": "opencode-cli"}]
+[{"provider": "opencode-cli", "model": "github-copilot/claude-sonnet-4.5", "agent": "general", "variant": "low", "timeoutMs": 60000}]
 ```
 
 **geminiTimeoutMs**: `config/memory.js`의 `morphemeIndex.geminiTimeoutMs` 값이 15000ms에서 **60000ms**로 상향되었다. Gemini CLI 및 Ollama Cloud 환경에서 실측 응답 지연이 20~40s에 달해 반복적인 "all LLM providers failed" 오류가 발생하던 문제를 해소하기 위한 조정이다.
