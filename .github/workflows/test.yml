@@ -61,8 +61,6 @@ jobs:
           DB_URL="postgresql://memento:memento_test@localhost:35433/memento_test"
           psql "$DB_URL" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           psql "$DB_URL" -f lib/memory/memory-schema.sql
-          for f in lib/memory/migration-*.sql; do
-            psql "$DB_URL" -f "$f"
-          done
+          npm run migrate
       - name: E2E tests
         run: npm run test:e2e

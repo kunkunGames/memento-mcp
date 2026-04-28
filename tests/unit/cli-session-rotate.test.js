@@ -94,7 +94,10 @@ describe("CLI session rotate", () => {
     );
 
     /** 기본 reason = "user_request" 확인 */
-    const defaultReason = (typeof undefined === "string" && "".trim()) ? "".trim().slice(0, 128) : "user_request";
+    const missingReason = undefined;
+    const defaultReason = (typeof missingReason === "string" && missingReason.trim())
+      ? missingReason.trim().slice(0, 128)
+      : "user_request";
     assert.strictEqual(defaultReason, "user_request");
   });
 
