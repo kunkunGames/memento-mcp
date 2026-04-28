@@ -230,10 +230,8 @@ cp .env.example .env
 Additional environment variables:
 
 ```
-LLM_PRIMARY             - Primary LLM provider (default: gemini-cli). Options: gemini-cli, codex-cli, qwen-cli, anthropic, etc.
-LLM_FALLBACKS           - JSON array of fallback providers: [{"provider":"codex-cli","timeoutMs":60000},{"provider":"qwen-cli","timeoutMs":60000}]
-LLM_PROVIDER_TIMEOUT_MS - Default per-provider call timeout in ms (default: 60000). LLM_FALLBACKS[].timeoutMs takes precedence
-LLM_CHAIN_TIMEOUT_MS    - Full LLM chain deadline in ms. 0 disables it. Runtime recommendation: 110000
+LLM_PRIMARY             - Primary LLM provider (default: gemini-cli). Options: gemini-cli, codex, copilot, anthropic, etc.
+LLM_FALLBACKS           - JSON array of fallback providers: [{"provider":"anthropic","apiKey":"...","model":"claude-opus-4-6"}]
 ```
 
 For the full list of environment variables, see [Configuration — Environment Variables](configuration.md#environment-variables).
@@ -310,7 +308,7 @@ npm install -g @githubnext/github-copilot-cli
 github-copilot-cli auth
 ```
 
-To use a CLI provider, set `LLM_PRIMARY` or `LLM_FALLBACKS` to `"codex-cli"`, `"copilot-cli"`, or `"qwen-cli"`.
+To use a CLI provider, set `LLM_PRIMARY` or `LLM_FALLBACKS` to `"codex"` or `"copilot"`.
 
 ---
 

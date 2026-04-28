@@ -80,8 +80,6 @@ Automatic fallback to 15 providers beyond Gemini CLI. Existing behavior is fully
 |----------|---------|-------------|
 | LLM_PRIMARY | gemini-cli | Primary provider name. gemini-cli requires no env configuration |
 | LLM_FALLBACKS | (none) | JSON array. Each element specifies provider/apiKey/model/baseUrl/timeoutMs/extraHeaders |
-| LLM_PROVIDER_TIMEOUT_MS | 60000 | Default per-provider call timeout in ms. `LLM_FALLBACKS[].timeoutMs` takes precedence |
-| LLM_CHAIN_TIMEOUT_MS | 0 | Full LLM provider chain deadline in ms. 0 disables it. The launchd runtime uses 110000 |
 
 ##### Circuit Breaker
 
@@ -121,15 +119,11 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 [{"provider": "qwen-cli", "model": "qwen-max"}]
 ```
 
-**geminiTimeoutMs**: The default `morphemeIndex.geminiTimeoutMs` value in `config/memory.js` is **60000ms**. This cap prevents the primary + fallback chain from spending too much wall-clock time inside a client request timeout, such as 120 seconds.
-
-**provider timeout default**: `LLM_PROVIDER_TIMEOUT_MS` defaults to **60000ms**. If an `LLM_FALLBACKS` entry has `timeoutMs`, that per-provider value wins; otherwise this default is applied to primary and fallback provider config.
+**geminiTimeoutMs**: The `morphemeIndex.geminiTimeoutMs` value in `config/memory.js` has been raised from 15000ms to **60000ms**. In Gemini CLI and Ollama Cloud environments, measured response latency frequently reached 20–40s, causing repeated "all LLM providers failed" errors. This adjustment resolves that pattern.
 
 The value is passed directly to the `geminiCLIJson(userPrompt, { timeoutMs: cfg.geminiTimeoutMs })` call inside `MorphemeIndex.tokenize()`. When tokenize fails, no morphemes are extracted and the L3 morpheme search path (the full-text search leg of recall) degrades gracefully via `_fallbackTokenize`. Consequently, timeout-induced tokenize failures translate directly to reduced recall result quality.
 
 **buildChain ordering logic** (`lib/llm/index.js:38–68`): An entries array is constructed from `LLM_PRIMARY` followed by `LLM_FALLBACKS` in declaration order. A `seen` Set removes duplicate providers, and each provider's `isAvailable()` check determines whether it is included in the chain. If `LLM_PRIMARY` also appears in `LLM_FALLBACKS`, the fallback config object takes precedence. A provider that fails `isAvailable()` is excluded from the chain and the next provider is tried immediately. The resulting chain order corresponds 1:1 with the env variable declaration order.
-
-**chain deadline**: When `LLM_CHAIN_TIMEOUT_MS` is greater than 0, the dispatcher caps each provider timeout to the remaining deadline. The current launchd runtime value is `110000ms`, so MCP requests can fail before a 120s client timeout.
 
 For detailed operational guidance, see `docs/operations/llm-providers.md`.
 
