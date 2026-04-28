@@ -11,7 +11,7 @@ const mockRunCodexCLI   = mock.fn();
 const mockRawIsCodexCli = mock.fn();
 
 mock.module("../../lib/codex.js", {
-  exports: {
+  namedExports: {
     runCodexCLI            : (...args) => mockRunCodexCLI(...args),
     _rawIsCodexCLIAvailable: (...args) => mockRawIsCodexCli(...args)
   }

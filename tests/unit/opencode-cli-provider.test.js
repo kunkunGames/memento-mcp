@@ -11,7 +11,7 @@ const mockRunOpenCodeCLI   = mock.fn();
 const mockRawIsOpenCodeCli = mock.fn();
 
 mock.module("../../lib/opencode.js", {
-  exports: {
+  namedExports: {
     runOpenCodeCLI            : (...args) => mockRunOpenCodeCLI(...args),
     _rawIsOpenCodeCLIAvailable: (...args) => mockRawIsOpenCodeCli(...args)
   }

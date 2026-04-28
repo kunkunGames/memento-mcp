@@ -5,11 +5,10 @@
  * Anthropic, Ollama 3종 샘플.
  * 실제 API 호출 0건 — global fetch를 mock으로 교체.
  *
- * [구현 버그 확인]
- * AnthropicProvider, OllamaProvider, CohereProvider, GoogleGeminiProvider는
- * callText() 내에서 `if (this.isCircuitOpen())` — await 누락으로
- * Promise 객체가 항상 truthy로 평가되어 회로 차단 에러를 항상 던진다.
- * 해당 케이스를 명시적 버그 검증 테스트로 포함한다.
+ * [회귀 확인]
+ * callText()는 `await this.isCircuitOpen()`를 먼저 확인한 뒤 외부 호출로
+ * 진행해야 한다. 테스트는 fetch mock만 사용하며 실제 API/로컬 서버를
+ * 호출하지 않는다.
  *
  * 작성자: 최진호
  * 작성일: 2026-04-16
@@ -145,7 +144,7 @@ describe("OpenAIProvider", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Anthropic Provider — await 누락 버그 검증
+// Anthropic Provider — circuit breaker 회귀 검증
 // ---------------------------------------------------------------------------
 
 describe("AnthropicProvider", () => {
@@ -164,25 +163,22 @@ describe("AnthropicProvider", () => {
     assert.equal(await p.isAvailable(), false);
   });
 
-  /**
-   * [구현 버그] callText에서 `await this.isCircuitOpen()` 대신
-   * `this.isCircuitOpen()` — await 누락으로 Promise 객체가 truthy로 평가되어
-   * 항상 "circuit breaker open" 에러를 던진다.
-   * 이 테스트는 해당 버그를 회귀 방지용으로 문서화한다.
-   */
-  it("[BUG] callText: await isCircuitOpen 누락으로 항상 circuit open 에러 발생 (회귀 검증)", async () => {
-    // 버그 상태에서 callText는 circuit open 에러를 던짐
-    // 버그가 수정되면 이 테스트가 FAIL로 바뀌어 수정 완료를 알려준다
-    await assert.rejects(
-      () => provider.callText("test prompt"),
-      e => e.message.includes("circuit breaker open") || e.message.includes("anthropic")
-    );
+  afterEach(() => restoreFetch());
+
+  it("callText: circuit breaker가 열려 있지 않으면 Anthropic API 호출까지 진행한다", async () => {
+    mockFetch(async () => okResponse({
+      content: [{ text: "anthropic ok" }],
+      usage  : { input_tokens: 1, output_tokens: 2 }
+    }));
+
+    const text = await provider.callText("test prompt");
+    assert.equal(text, "anthropic ok");
   });
 
 });
 
 // ---------------------------------------------------------------------------
-// Ollama Provider — await 누락 버그 검증
+// Ollama Provider — circuit breaker 회귀 검증
 // ---------------------------------------------------------------------------
 
 describe("OllamaProvider", () => {
@@ -201,15 +197,15 @@ describe("OllamaProvider", () => {
     assert.equal(await p.isAvailable(), false);
   });
 
-  /**
-   * [구현 버그] OllamaProvider도 동일하게 await 누락으로
-   * callText가 항상 "circuit breaker open" 에러를 던진다.
-   */
-  it("[BUG] callText: await isCircuitOpen 누락으로 항상 circuit open 에러 발생 (회귀 검증)", async () => {
-    await assert.rejects(
-      () => provider.callText("test prompt"),
-      e => e.message.includes("circuit breaker open") || e.message.includes("ollama")
-    );
+  afterEach(() => restoreFetch());
+
+  it("callText: circuit breaker가 열려 있지 않으면 Ollama API 호출까지 진행한다", async () => {
+    mockFetch(async () => okResponse({
+      message: { content: "ollama ok" }
+    }));
+
+    const text = await provider.callText("test prompt");
+    assert.equal(text, "ollama ok");
   });
 
 });
