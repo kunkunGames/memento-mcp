@@ -13,10 +13,23 @@
  * 실행: node --test tests/unit/tenant-isolation-boundary.test.js
  */
 
-import { describe, it, mock } from "node:test";
+import { beforeEach, describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 
 import { CbrEligibility } from "../../lib/symbolic/CbrEligibility.js";
+
+const mockClaimStoreQuery = mock.fn(async () => ({ rowCount: 0, rows: [] }));
+const mockClaimStorePool  = { query: mockClaimStoreQuery };
+
+mock.module("../../lib/tools/db.js", {
+  namedExports: {
+    getPrimaryPool: () => mockClaimStorePool
+  }
+});
+
+beforeEach(() => {
+  mockClaimStoreQuery.mock.resetCalls();
+});
 
 // SearchParamAdaptor._normalizeKeyId 는 module-private 함수.
 // 모듈을 동적 import 한 뒤 실제 SearchParamAdaptor 인스턴스 메서드를 통해
@@ -291,17 +304,26 @@ describe("D. 교차 격리 — master(null) ↔ API key cross-tenant 차단", ()
 
   it("D-5: select path — getByFragmentId는 normalizeKeyId를 거쳐 IS NOT DISTINCT FROM 사용", async () => {
     const { ClaimStore } = await import("../../lib/symbolic/ClaimStore.js");
+    mockClaimStoreQuery.mock.mockImplementationOnce(async () => ({ rows: [] }));
     const store = new ClaimStore();
-    // pool null → 빈 배열 반환, 예외 없음
     const rows = await store.getByFragmentId("frag-x", null);
     assert.deepStrictEqual(rows, []);
+
+    const [sql, params] = mockClaimStoreQuery.mock.calls.at(-1).arguments;
+    assert.match(sql, /key_id IS NOT DISTINCT FROM \$2/);
+    assert.deepStrictEqual(params, ["frag-x", null]);
   });
 
-  it("D-6: delete path — deleteByFragmentId는 pool null 시 0 반환 (예외 없음)", async () => {
+  it("D-6: delete path — deleteByFragmentId는 normalizeKeyId를 거쳐 IS NOT DISTINCT FROM 사용", async () => {
     const { ClaimStore } = await import("../../lib/symbolic/ClaimStore.js");
+    mockClaimStoreQuery.mock.mockImplementationOnce(async () => ({ rowCount: 0 }));
     const store = new ClaimStore();
     const count = await store.deleteByFragmentId("frag-x", null);
     assert.equal(count, 0);
+
+    const [sql, params] = mockClaimStoreQuery.mock.calls.at(-1).arguments;
+    assert.match(sql, /key_id IS NOT DISTINCT FROM \$2/);
+    assert.deepStrictEqual(params, ["frag-x", null]);
   });
 
 });

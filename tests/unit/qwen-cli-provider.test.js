@@ -11,7 +11,7 @@ const mockRunQwenCLI   = mock.fn();
 const mockRawIsQwenCli = mock.fn();
 
 mock.module("../../lib/qwen.js", {
-  exports: {
+  namedExports: {
     runQwenCLI            : (...args) => mockRunQwenCLI(...args),
     _rawIsQwenCLIAvailable: (...args) => mockRawIsQwenCli(...args)
   }
