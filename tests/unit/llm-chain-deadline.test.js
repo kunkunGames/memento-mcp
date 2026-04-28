@@ -28,7 +28,7 @@ class MockProvider {
 }
 
 mock.module("../../lib/config.js", {
-  exports: {
+  namedExports: {
     LLM_PRIMARY         : "primary",
     LLM_FALLBACKS      : [
       { provider: "primary", timeoutMs: 70 },
@@ -40,13 +40,13 @@ mock.module("../../lib/config.js", {
 });
 
 mock.module("../../lib/llm/registry.js", {
-  exports: {
+  namedExports: {
     createProvider: (config) => new MockProvider(config)
   }
 });
 
 mock.module("../../lib/logger.js", {
-  exports: {
+  namedExports: {
     logWarn        : () => {},
     REDACT_PATTERNS: [],
     redactString   : (value) => value

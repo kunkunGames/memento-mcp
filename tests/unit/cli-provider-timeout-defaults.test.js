@@ -13,14 +13,14 @@ const mockRunCopilotCLI  = mock.fn();
 const mockRawIsCopilotCli = mock.fn(async () => true);
 
 mock.module("../../lib/gemini.js", {
-  exports: {
+  namedExports: {
     runGeminiCLI            : (...args) => mockRunGeminiCLI(...args),
     _rawIsGeminiCLIAvailable: (...args) => mockRawIsGeminiCli(...args)
   }
 });
 
 mock.module("../../lib/copilot.js", {
-  exports: {
+  namedExports: {
     runCopilotCLI            : (...args) => mockRunCopilotCLI(...args),
     _rawIsCopilotCLIAvailable: (...args) => mockRawIsCopilotCli(...args),
     extractJsonBlock         : (raw) => raw
