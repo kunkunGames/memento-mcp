@@ -185,8 +185,8 @@ CONSOLIDATE_INTERVAL_MS - consolidate 주기 (기본: 3600000 = 1시간)
 ALLOWED_ORIGINS         - CORS 허용 Origin 목록 (쉼표 구분)
 RERANKER_ENABLED        - cross-encoder reranking 활성화 (기본: false)
 RERANKER_MODEL          - in-process 모델 선택: minilm (기본, 영어 전용) 또는 bge-m3 (다국어, 비영어권 권장)
-LLM_PRIMARY             - 주 LLM provider (기본: gemini-cli). gemini-cli, codex-cli, qwen-cli, opencode-cli, anthropic 등
-LLM_FALLBACKS           - JSON 배열. 예: [{"provider":"codex-cli","timeoutMs":60000},{"provider":"opencode-cli","timeoutMs":60000}]
+LLM_PRIMARY             - 주 LLM provider (기본: gemini-cli). gemini-cli, codex-cli, qwen-cli, anthropic 등
+LLM_FALLBACKS           - JSON 배열. 예: [{"provider":"codex-cli","timeoutMs":60000},{"provider":"qwen-cli","timeoutMs":60000}]
 LLM_PROVIDER_TIMEOUT_MS - provider별 기본 호출 timeout ms (기본: 60000). LLM_FALLBACKS[].timeoutMs가 우선
 LLM_CHAIN_TIMEOUT_MS    - 전체 LLM chain deadline ms. 0이면 비활성. 운영 권장: 110000
 ```
@@ -261,7 +261,7 @@ npm install -g @githubnext/github-copilot-cli
 github-copilot-cli auth
 ```
 
-CLI provider를 사용하려면 `LLM_PRIMARY` 또는 `LLM_FALLBACKS`에 `"codex-cli"` / `"copilot-cli"` / `"qwen-cli"` / `"opencode-cli"` 값을 설정하면 된다.
+CLI provider를 사용하려면 `LLM_PRIMARY` 또는 `LLM_FALLBACKS`에 `"codex-cli"` / `"copilot-cli"` / `"qwen-cli"` 값을 설정하면 된다.
 
 ---
 

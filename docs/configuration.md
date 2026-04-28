@@ -103,7 +103,7 @@ REDIS_ENABLED=true면 Redis에 상태 저장, 아니면 in-memory.
 
 ##### 지원 Provider 목록
 
-gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**, **opencode-cli**
+gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**
 
 **codex-cli**: `codex exec --skip-git-repo-check --sandbox read-only --output-last-message FILE` 명령을 실행한다. `OPENAI_API_KEY` 또는 Codex CLI 설정 파일로 인증한다. `LLM_FALLBACKS`의 `model`, `timeoutMs` 설정이 provider config를 통해 실제 CLI 호출까지 전달된다:
 ```json
@@ -119,12 +119,6 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 ```json
 [{"provider": "qwen-cli"}]
 [{"provider": "qwen-cli", "model": "qwen-max"}]
-```
-
-**opencode-cli**: OpenCode CLI(`opencode run`)를 래퍼로 호출한다. `model`, `agent`, `variant`, `timeoutMs`를 provider config로 전달할 수 있다:
-```json
-[{"provider": "opencode-cli", "timeoutMs": 60000}]
-[{"provider": "opencode-cli", "model": "github-copilot/claude-sonnet-4.5", "agent": "general", "variant": "low"}]
 ```
 
 **geminiTimeoutMs**: `config/memory.js`의 `morphemeIndex.geminiTimeoutMs` 기본값은 **60000ms**다. 이 값은 client timeout(예: 120초) 안에서 primary + fallback 체인이 여러 provider를 시도할 때 전체 대기 시간이 과도하게 늘어나는 것을 막기 위한 상한이다.

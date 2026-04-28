@@ -103,7 +103,7 @@ When REDIS_ENABLED=true, state is stored in Redis; otherwise in-memory.
 
 ##### Supported Providers
 
-gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**, **opencode-cli**
+gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**
 
 **codex-cli**: Executes `codex exec --skip-git-repo-check --sandbox read-only --output-last-message FILE`. Authenticates via `OPENAI_API_KEY` or the Codex CLI config file. `model` and `timeoutMs` in `LLM_FALLBACKS` are passed through to the actual CLI invocation:
 ```json
@@ -119,12 +119,6 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 ```json
 [{"provider": "qwen-cli"}]
 [{"provider": "qwen-cli", "model": "qwen-max"}]
-```
-
-**opencode-cli**: Wraps OpenCode CLI (`opencode run`). `model`, `agent`, `variant`, and `timeoutMs` can be passed through as provider config:
-```json
-[{"provider": "opencode-cli", "timeoutMs": 60000}]
-[{"provider": "opencode-cli", "model": "github-copilot/claude-sonnet-4.5", "agent": "general", "variant": "low"}]
 ```
 
 **geminiTimeoutMs**: The default `morphemeIndex.geminiTimeoutMs` value in `config/memory.js` is **60000ms**. This cap prevents the primary + fallback chain from spending too much wall-clock time inside a client request timeout, such as 120 seconds.
