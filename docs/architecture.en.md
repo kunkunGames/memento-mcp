@@ -1071,11 +1071,11 @@ LLM_PRIMARY=gemini-cli
 - Requires `qwen auth` authentication
 
 **Circuit breaker and timeout** (`config/memory.js`):
-- `geminiTimeoutMs: 60000` (increased from 15000). Accommodates latency growth with large Gemini CLI prompts
+- `geminiTimeoutMs: 40000`. Aligns CLI provider call caps so the primary + fallback chain does not occupy too much of the client timeout window
 - Circuit breaker failure threshold (LLM_CB_FAILURE_THRESHOLD=5) and OPEN duration (LLM_CB_OPEN_DURATION_MS=60000) remain unchanged
 
 **Complete LLM_PRIMARY allowed values** (v2.9.0):
-`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`, `qwen-cli`
+`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`, `qwen-cli`, `opencode-cli`
 
 ### Search Pipeline -- _suggestion Post-Processing
 

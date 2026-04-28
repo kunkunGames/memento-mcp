@@ -80,6 +80,7 @@ Gemini CLI 외 15개 provider로 자동 fallback 가능. 기본값에서 기존 
 |------|--------|------|
 | LLM_PRIMARY | gemini-cli | 주 provider 이름. gemini-cli는 env 설정 불필요 |
 | LLM_FALLBACKS | (없음) | JSON 배열. 각 원소에 provider/apiKey/model/baseUrl/timeoutMs/extraHeaders 지정 |
+| LLM_CHAIN_TIMEOUT_MS | 0 | 전체 LLM provider chain deadline(ms). 0이면 비활성. 운영 launchd는 110000으로 설정 |
 
 ##### Circuit Breaker
 
@@ -101,7 +102,7 @@ REDIS_ENABLED=true면 Redis에 상태 저장, 아니면 in-memory.
 
 ##### 지원 Provider 목록
 
-gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**
+gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama, vllm, deepseek, mistral, cohere, zai, **codex-cli**, **copilot-cli**, **qwen-cli**, **opencode-cli**
 
 **codex-cli**: `codex exec --skip-git-repo-check --sandbox read-only --output-last-message FILE` 명령을 실행한다. `OPENAI_API_KEY` 또는 Codex CLI 설정 파일로 인증한다. `LLM_FALLBACKS`의 `model`, `timeoutMs` 설정이 provider config를 통해 실제 CLI 호출까지 전달된다:
 ```json
@@ -119,11 +120,19 @@ gemini-cli, anthropic, openai, google-gemini-api, groq, openrouter, xai, ollama,
 [{"provider": "qwen-cli", "model": "qwen-max"}]
 ```
 
-**geminiTimeoutMs**: `config/memory.js`의 `morphemeIndex.geminiTimeoutMs` 값이 15000ms에서 **60000ms**로 상향되었다. Gemini CLI 및 Ollama Cloud 환경에서 실측 응답 지연이 20~40s에 달해 반복적인 "all LLM providers failed" 오류가 발생하던 문제를 해소하기 위한 조정이다.
+**opencode-cli**: OpenCode CLI(`opencode run`)를 래퍼로 호출한다. `model`, `agent`, `variant`, `timeoutMs`를 provider config로 전달할 수 있다:
+```json
+[{"provider": "opencode-cli", "timeoutMs": 40000}]
+[{"provider": "opencode-cli", "model": "github-copilot/claude-sonnet-4.5", "agent": "general", "variant": "low"}]
+```
+
+**geminiTimeoutMs**: `config/memory.js`의 `morphemeIndex.geminiTimeoutMs` 기본값은 **40000ms**다. 이 값은 client timeout(예: 120초) 안에서 primary + fallback 체인이 여러 provider를 시도할 때 전체 대기 시간이 과도하게 늘어나는 것을 막기 위한 상한이다.
 
 이 값은 `MorphemeIndex.tokenize()` 내부의 `geminiCLIJson(userPrompt, { timeoutMs: cfg.geminiTimeoutMs })` 호출에 직접 전달된다. tokenize가 실패하면 형태소 추출 결과가 없으므로 L3 morpheme 검색(recall의 전문 검색 경로)이 비활성화된 것과 동일하게 동작한다 (`_fallbackTokenize` 로 graceful degrade). 따라서 타임아웃 미달로 인한 tokenize 실패는 recall 응답 품질 저하로 직결된다.
 
 **buildChain 순서 결정 로직** (`lib/llm/index.js:38–68`): `LLM_PRIMARY` → `LLM_FALLBACKS` 선언 순서로 entries 배열을 구성한 뒤, `seen` Set으로 중복 provider를 제거하고, 각 provider의 `isAvailable()` 체크 성공 여부로 chain에 포함 여부를 결정한다. `LLM_PRIMARY`가 `LLM_FALLBACKS` 목록에도 있으면 fallback의 config 객체가 우선 사용된다. `isAvailable()` 실패 시 해당 provider는 체인에서 제외되고 다음 provider로 즉시 넘어간다. 결과적으로 chain 순서는 환경변수 선언 순서와 1:1 대응한다.
+
+**chain deadline**: `LLM_CHAIN_TIMEOUT_MS`가 0보다 크면 dispatcher가 provider별 timeout을 남은 deadline 이하로 축소한다. 현재 launchd 운영값은 `110000ms`로, 120초 MCP client timeout보다 먼저 실패를 반환하도록 둔다.
 
 자세한 운영 가이드는 `docs/operations/llm-providers.md` 참조.
 

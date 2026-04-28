@@ -1074,11 +1074,11 @@ LLM_PRIMARY=gemini-cli
 - `qwen auth` 인증 필요
 
 **circuit breaker 및 timeout** (`config/memory.js`):
-- `geminiTimeoutMs: 60000` (이전 15000에서 상향). Gemini CLI 대형 프롬프트의 지연 증가 대응
+- `geminiTimeoutMs: 40000`. primary + fallback 체인이 client timeout 안에서 과도하게 오래 점유되지 않도록 CLI provider 호출 상한을 맞춤
 - circuit breaker 실패 임계(LLM_CB_FAILURE_THRESHOLD=5), OPEN 지속(LLM_CB_OPEN_DURATION_MS=60000)은 기존과 동일
 
 **LLM_PRIMARY 허용값 전체 목록** (v2.9.0):
-`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`, `qwen-cli`
+`gemini-cli`, `anthropic`, `openai`, `google-gemini-api`, `groq`, `openrouter`, `xai`, `ollama`, `vllm`, `deepseek`, `mistral`, `cohere`, `zai`, `codex-cli`, `copilot-cli`, `qwen-cli`, `opencode-cli`
 
 ### 검색 파이프라인 — _suggestion 후처리
 

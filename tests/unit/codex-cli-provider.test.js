@@ -86,6 +86,18 @@ describe("CodexCliProvider", () => {
     assert.deepEqual(result, { ok: true });
   });
 
+  it("callJson: options.timeoutMs와 config.timeoutMs가 없으면 40000ms를 사용한다", async () => {
+    mockRunCodexCLI.mock.mockImplementationOnce(async (_stdinContent, _prompt, options) => {
+      assert.equal(options.timeoutMs, 40_000);
+      return "{\"ok\":true}";
+    });
+
+    const provider = new CodexCliProvider();
+    const result = await provider.callJson("user payload");
+
+    assert.deepEqual(result, { ok: true });
+  });
+
   it("callJson: circuit breaker open 상태면 helper 호출 없이 에러를 던진다", async () => {
     const provider = new CodexCliProvider();
     provider.isCircuitOpen = async () => true;
