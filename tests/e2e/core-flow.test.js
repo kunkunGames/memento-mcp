@@ -209,7 +209,7 @@ after(async () => {
 
   /** 안전망: 테스트 agent_id에 속하는 모든 파편 삭제 */
   try {
-    await pool.query(`SET app.current_agent_id = $1`, [AGENT]);
+    await pool.query(`SELECT set_config('app.current_agent_id', $1, false)`, [AGENT]);
     await pool.query(`DELETE FROM ${SCHEMA}.fragments WHERE agent_id = $1`, [AGENT]);
   } catch (err) {
     console.warn(`[e2e/core-flow] cleanup failed: ${err.message}`);
