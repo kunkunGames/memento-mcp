@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS agent_memory.fragments (
     estimated_tokens INTEGER DEFAULT 0,
     utility_score    REAL DEFAULT 1.0,
     verified_at      TIMESTAMPTZ DEFAULT NOW(),
+    affect           TEXT DEFAULT 'neutral' CHECK (affect IN ('neutral', 'frustration', 'confidence', 'surprise', 'doubt', 'satisfaction')),
     -- 차원 변경 시 scripts/post-migrate-flexible-embedding-dims.js 실행 (EMBEDDING_DIMENSIONS 환경변수 참조)
     -- >2000차원 모델(Gemini gemini-embedding-001 등)은 halfvec 타입으로 자동 전환됨 (pgvector ≥0.7.0 필요)
     embedding        vector(1536)
@@ -58,6 +59,9 @@ CREATE INDEX IF NOT EXISTS idx_frag_source
     ON agent_memory.fragments(source);
 CREATE INDEX IF NOT EXISTS idx_frag_verified
     ON agent_memory.fragments(verified_at);
+CREATE INDEX IF NOT EXISTS idx_frag_affect
+    ON agent_memory.fragments(affect)
+    WHERE affect IS NOT NULL AND affect != 'neutral';
 
 -- HNSW 벡터 인덱스 (임베딩 존재하는 행만)
 CREATE INDEX IF NOT EXISTS idx_frag_embedding
