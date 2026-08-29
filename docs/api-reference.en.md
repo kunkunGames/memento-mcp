@@ -353,6 +353,11 @@ MCP resources for real-time queries on the current state of the memory system.
 
 Each returned fragment includes a `key_id` field. When called with a master key, fragments owned by other API keys may also be returned, identifiable by their `key_id` value. When called with an API key, only fragments owned by that key (`key_id` match) or group-shared fragments are returned.
 
+`stitched_context` field: returned when `includeContext=true`. Combines surrounding time context and causal links into a single narrative structure. Attached only to the top 3 fragments that actually have material to combine, and trimmed to one item per side when it would exceed 40% of the response token budget.
+
+- `pre` / `post`: fragments stored within 30 minutes before or after the target within the same `session_id`. `delta_min` is the signed minute offset from the target.
+- `causal`: `caused_by` / `resolved_by` / `contradicts` / `part_of` links only. Automatically generated `related` / `co_retrieved` / `temporal` links are excluded. Links are followed in both directions, with `direction` marking which way the edge points.
+
 `affect` field: The emotional state tag attached to the fragment at storage time, returned as stored.
 
 `_meta`: A metadata wrapper at the top level of recall/context responses.
@@ -657,6 +662,24 @@ Query the processing state of an async batch job started by `batch_remember(asyn
 ```
 
 ---
+
+### Permission denials
+
+Calling a tool without the required permission returns JSON-RPC error `-32600` with the message `Internal error`. The actual reason (`Permission denied: '<tool>' requires '<level>' permission`) is recorded in the server log only. A client therefore cannot tell an authorization failure from a server fault by the response alone, which matters when designing retry policy. `memory_consolidate`, `apply_update`, and `check_update` take this path.
+
+### forget response shapes
+
+| Situation | Response | isError |
+|-|-|-|
+| Deleted | `{success: true, deleted: 1}` | false |
+| Permanent tier without `force` | `{success: true, deleted: 0, protected: 1, reason: "..."}` | false |
+| Target missing or not permitted | `{success: true, deleted: 0, error: "Fragment not found or no permission"}` | true |
+
+In the third case the payload reports `success: true` while carrying an `error` key, and that key flips the MCP envelope to `isError: true`. Retrying a delete that already succeeded lands here, so clients should read `deleted` rather than treating the envelope as authoritative.
+
+### memory_consolidate execution
+
+Requires `admin`. The full cycle runs 20+ stages and scales with fragment count; around 13,000 fragments it takes roughly 7 minutes. The scheduler runs the same path every 6 hours by default, so manual invocation is for inspection only. The semantic dedup stage is guarded: a merge is blocked when the distinctive tokens of the fragment being removed do not survive in the one being kept.
 
 ## MCP Tool — forget
 
