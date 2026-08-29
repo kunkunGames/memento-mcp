@@ -11,9 +11,9 @@
 --   QuotaChecker가 fragments 행 수로 fragment_limit을 판정하므로 같은 표에 넣으면
 --   사용자 할당량을 잠식한다. 또한 보조 벡터는 언제든 재생성 가능한 파생 자료다.
 --
--- 임베딩 차원은 EMBEDDING_DIMENSIONS 설정을 따른다. 아래 정의는 현행 기본값 1536이며,
--- 차원을 바꾸는 경우 scripts/check-embedding-consistency.js의 검사 대상에 이 표가
--- 포함되어 있으므로 기동 게이트가 불일치를 잡는다.
+-- 임베딩 타입·차원은 migrate.js가 agent_memory.fragments.embedding의 live 선언으로
+-- 치환한다. 차원을 바꾸는 경우 scripts/check-embedding-consistency.js의 검사 대상에
+-- 이 표가 포함되어 있으므로 기동 게이트가 불일치를 잡는다.
 --
 -- 멱등: CREATE TABLE / INDEX IF NOT EXISTS, 정책은 DROP 후 재생성
 
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS agent_memory.fragment_synthetic_query (
     fragment_id  TEXT        NOT NULL
                              REFERENCES agent_memory.fragments(id) ON DELETE CASCADE,
     query_text   TEXT        NOT NULL,
-    embedding    vector(1536),
+    embedding    __FRAGMENT_EMBEDDING_TYPE__,
     key_id       TEXT,
     agent_id     TEXT        NOT NULL DEFAULT 'default',
     workspace    TEXT,

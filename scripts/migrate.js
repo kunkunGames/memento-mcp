@@ -25,6 +25,10 @@ import fs   from "node:fs";
 import path from "node:path";
 import pg   from "pg";
 import dotenv from "dotenv";
+import {
+  fetchEmbeddingColumn,
+  resolveEmbeddingColumnSpec,
+} from "../lib/memory/embedding/column-spec.js";
 
 dotenv.config();
 
@@ -76,21 +80,32 @@ async function migrate() {
       } catch { /* pgvector not installed */ }
     }
 
-    // embedding 컬럼 타입에 따른 ops 클래스 결정
-    let opsClass = "vector_cosine_ops";
-    try {
-      const colResult = await client.query(
-        `SELECT udt_name
-         FROM information_schema.columns
-         WHERE table_schema = 'agent_memory'
-           AND table_name   = 'fragments'
-           AND column_name  = 'embedding'`
-      );
-      if (colResult.rows.length > 0 && colResult.rows[0].udt_name === "halfvec") {
-        opsClass = "halfvec_cosine_ops";
+    // 파생 임베딩 테이블도 fragments와 같은 타입·차원을 사용해야 한다.
+    // 예: 운영 DB가 halfvec(2560)이면 vector(1536)를 고정 생성하면 HNSW opclass가
+    // 맞지 않아 migration-043이 실패한다. fragments가 아직 없는 신규 설치만 1536 기본값을 쓴다.
+    let embeddingSpec = resolveEmbeddingColumnSpec(1536);
+    const fragmentEmbedding = await fetchEmbeddingColumn(
+      client,
+      "agent_memory",
+      "fragments",
+    );
+    if (fragmentEmbedding) {
+      const { udtName, declaredDim } = fragmentEmbedding;
+      if (!Number.isInteger(declaredDim) || declaredDim <= 0) {
+        throw new Error(
+          `Unsupported fragments.embedding declaration: ${udtName}(${declaredDim ?? "unspecified"})`,
+        );
       }
-    } catch { /* fragments 테이블 미존재 시 기본값 유지 */ }
-    console.log(`Embedding ops class: ${opsClass}`);
+      const liveSpec = resolveEmbeddingColumnSpec(declaredDim);
+      if (liveSpec.udtName !== udtName) {
+        throw new Error(
+          `Unsupported fragments.embedding type: ${udtName}(${declaredDim}); expected ${liveSpec.udtName} for ${declaredDim} dimensions`,
+        );
+      }
+      embeddingSpec = liveSpec;
+    }
+    const { colType: fragmentEmbeddingType, opsType: opsClass } = embeddingSpec;
+    console.log(`Embedding column type: ${fragmentEmbeddingType}; ops class: ${opsClass}`);
 
     const searchPathParts = ["agent_memory"];
     if (pgvectorSchema) searchPathParts.push(pgvectorSchema);
@@ -119,10 +134,11 @@ async function migrate() {
     for (const file of pending) {
       console.log(`  Applying ${file}...`);
       let sql = fs.readFileSync(path.join(MIGRATION_DIR, file), "utf-8");
-      /** opclass placeholder 치환 — 환경에 따라 vector_cosine_ops를 다른 opclass(예: halfvec_cosine_ops)로
-       *  변경한다. 마이그레이션 파일은 vector_cosine_ops를 placeholder로 그대로 두고, migrate.js가
-       *  적용 시점에 치환한다. */
-      sql = sql.replaceAll("vector_cosine_ops", opsClass);
+      /** 임베딩 placeholder 치환 — 파생 테이블은 fragments의 live 타입·차원과
+       *  동일해야 HNSW opclass와 런타임 임베딩이 정합한다. */
+      sql = sql
+        .replaceAll("__FRAGMENT_EMBEDDING_TYPE__", fragmentEmbeddingType)
+        .replaceAll("vector_cosine_ops", opsClass);
       /** body-only 규약(docs/migration-conventions.md) 이후로는 마이그레이션 파일이 인라인 BEGIN/COMMIT이나
        *  INSERT INTO agent_memory.schema_migrations를 포함하지 않는다. 기존 파일도 일괄 normalize 완료.
        *  신규 파일은 scripts/lint-migrations.js가 PR 시점에 차단한다. */
