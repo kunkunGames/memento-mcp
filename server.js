@@ -41,8 +41,7 @@ import {
 /** 도구 (통계 저장용) */
 import { saveAccessStats } from "./lib/tools/index.js";
 import { shutdownPool, getPrimaryPool } from "./lib/tools/db.js";
-import { getMemoryEvaluator } from "./lib/memory/signals/MemoryEvaluator.js";
-import { getBatchRememberWorker } from "./lib/memory/write/BatchRememberWorker.js";
+import { drainAllWorkers } from "./lib/memory/workers/registry.js";
 
 /** 메트릭 */
 import { recordHttpRequest } from "./lib/metrics.js";
@@ -96,8 +95,6 @@ const rateLimiter = new DualRateLimiter({
 });
 setInterval(() => rateLimiter.cleanup(), 5 * 60_000).unref();
 
-/** EmbeddingWorker 인스턴스 (서버 시작 후 초기화) */
-let globalEmbeddingWorker = null;
 
 const ADMIN_BASE = "/v1/internal/model/nothing";
 
@@ -286,12 +283,34 @@ const server = http.createServer(async (req, res) => {
 
 server.keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT_MS  || 75000);
 server.headersTimeout   = Number(process.env.HEADERS_TIMEOUT_MS    || 76000);
-server.requestTimeout   = Number(process.env.REQUEST_TIMEOUT_MS    || 0);
+/**
+ * 요청 수신 시간 상한.
+ *
+ * 0은 무제한이며 느린 연결이 커넥션을 무기한 점유한다. 이 값은 본문을 다 받는
+ * 데 걸리는 시간을 제한할 뿐 처리 시간을 제한하지 않는다. 처리 시간은
+ * 질의 계층의 statement_timeout이 따로 맡는다.
+ *
+ * 본문 상한이 2MiB이므로 60초면 정상 요청에 충분하다.
+ */
+server.requestTimeout   = Number(process.env.REQUEST_TIMEOUT_MS    || 60000);
 
 server.on("connection", (socket) => {
   socket.setKeepAlive(true, 60000);
   socket.setNoDelay(true);
 });
+
+/**
+ * 인증 구성을 기동 시점에 검사한다.
+ *
+ * 키 없이 뜨는 서버는 모든 도구와 master 범위를 무인증으로 연다. 이 실수를
+ * 첫 요청이 아니라 기동에서 드러낸다. 무인증 운용이 필요하면 그 의사를
+ * 명시적으로 밝혀야 한다.
+ */
+if (!ACCESS_KEY && !AUTH_DISABLED) {
+  console.error("[Startup] MEMENTO_ACCESS_KEY가 설정되지 않았습니다.");
+  console.error("[Startup] 무인증으로 운용하려면 MEMENTO_AUTH_DISABLED=true를 명시하십시오.");
+  process.exit(78);
+}
 
 server.listen(PORT, () => {
   validateMemoryConfig(MEMORY_CONFIG);
@@ -302,7 +321,7 @@ server.listen(PORT, () => {
   if (ACCESS_KEY) {
     console.log("Authentication: ENABLED");
   } else {
-    console.log("Authentication: DISABLED (set MEMENTO_ACCESS_KEY to enable)");
+    console.log("Authentication: DISABLED (MEMENTO_AUTH_DISABLED=true로 명시된 운용)");
   }
 
   console.log(`Session TTL: ${SESSION_TTL_MS / 60000} minutes`);
@@ -323,7 +342,6 @@ server.listen(PORT, () => {
   const embeddingWorkerRef = { current: null };
   startSchedulers({ globalEmbeddingWorkerRef: embeddingWorkerRef });
   setWorkerRefs({ embeddingWorkerRef });
-  globalEmbeddingWorker = embeddingWorkerRef.current;
 
   /** Reranker 사전 로드 (비차단 — 실패해도 서버 시작 중단 없음) */
   preloadReranker().catch(() => {});
@@ -352,30 +370,14 @@ async function gracefulShutdown(signal, { exitCode = 0 } = {}) {
   /** 2. 진행 중 워커 완료 대기 (최대 30초) */
   const drainPromises = [];
 
-  const evaluatorDrain = getMemoryEvaluator().stop();
-  if (evaluatorDrain) drainPromises.push(evaluatorDrain);
-
-  /** batch_remember 비동기 워커 drain (큐 적재분 유실 방지) */
-  const batchWorkerDrain = getBatchRememberWorker().stop();
-  if (batchWorkerDrain) drainPromises.push(batchWorkerDrain);
-
-  /** 합성 역질의 워커 drain. 진행 중 배치를 마치고 종료한다. */
-  try {
-    const { getSyntheticQueryWorker } = await import("./lib/memory/embedding/SyntheticQueryWorker.js");
-    const syntheticDrain = getSyntheticQueryWorker().stop();
-    if (syntheticDrain) drainPromises.push(syntheticDrain);
-  } catch { /* 모듈 미로드 시 drain 대상 없음 */ }
+  /** 기동한 폴링 워커는 스스로 레지스트리에 등록되어 있다. 일괄 배수한다. */
+  drainPromises.push(...drainAllWorkers());
 
   /** Phase 4: 형태소 등록 drain (미완료 morpheme fire-and-forget 작업 완료 대기) */
   try {
     const { MemoryManager } = await import("./lib/memory/MemoryManager.js");
     drainPromises.push(MemoryManager.getInstance().drainMorpheme());
   } catch { /* MemoryManager 미초기화 시 skip */ }
-
-  if (globalEmbeddingWorker) {
-    const embeddingDrain = globalEmbeddingWorker.stop();
-    if (embeddingDrain) drainPromises.push(embeddingDrain);
-  }
 
   if (drainPromises.length > 0) {
     console.log(`[Shutdown] Waiting for ${drainPromises.length} worker(s) to drain (timeout: ${DRAIN_TIMEOUT_MS}ms)...`);

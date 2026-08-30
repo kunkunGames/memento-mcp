@@ -1,9 +1,26 @@
 {
   "name": "anchormind-mcp",
-  "version": "5.8.0",
+  "version": "5.9.0",
   "license": "Apache-2.0",
   "description": "Fragment-Based Memory MCP Server",
   "main": "server.js",
+  "files": [
+    "bin/",
+    "lib/",
+    "config/",
+    "scripts/",
+    "assets/admin/",
+    "assets/images/",
+    "server.js",
+    "setup.sh",
+    "SKILL.md",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    ".env.example",
+    ".env.example.minimal"
+  ],
   "type": "module",
   "bin": {
     "anchormind": "bin/memento.js",
@@ -12,9 +29,9 @@
   "scripts": {
     "start": "node server.js",
     "test": "DOTENV_CONFIG_PATH=.env.test MEMENTO_METRICS_DEFAULT=off REDIS_ENABLED=false CACHE_ENABLED=false node --experimental-test-module-mocks --test 'tests/unit/*.test.js' 'tests/unit/**/*.test.js'",
-    "test:integration": "DOTENV_CONFIG_PATH=.env.test MEMENTO_METRICS_DEFAULT=off REDIS_ENABLED=false CACHE_ENABLED=false node --test tests/integration/*.test.js tests/e2e/*.test.js",
+    "test:integration": "DOTENV_CONFIG_PATH=.env.test MEMENTO_METRICS_DEFAULT=off REDIS_ENABLED=false CACHE_ENABLED=false node --experimental-test-module-mocks --test tests/integration/*.test.js tests/e2e/*.test.js",
     "test:integration:llm": "MEMENTO_METRICS_DEFAULT=off node --test --test-concurrency=1 tests/integration/llm-cli-smoke.test.js tests/integration/llm-timeout.test.js tests/integration/morpheme-llm-real.test.js tests/integration/llm-chain-real.test.js",
-    "test:e2e": "node --test --test-concurrency=1 tests/e2e/*.test.js",
+    "test:e2e": "DOTENV_CONFIG_PATH=.env.test MEMENTO_METRICS_DEFAULT=off node --experimental-test-module-mocks --test --test-concurrency=1 tests/e2e/*.test.js",
     "test:e2e:local": "bash scripts/run-e2e-tests.sh",
     "test:ci": "npm test && npm run test:integration",
     "lint": "eslint .",
@@ -24,33 +41,44 @@
     "cli": "node bin/memento.js"
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "@node-rs/jieba": "^2.0.1",
-    "dotenv": "^16.0.0",
-    "garu-ko": "^0.9.1",
-    "ioredis": "^5.9.3",
+    "@huggingface/transformers": "^4.2.0",
+    "@node-rs/jieba": "^2.0.2",
+    "dotenv": "^17.4.2",
+    "garu-ko": "^0.9.16",
+    "ioredis": "^6.0.0",
     "js-tiktoken": "^1.0.21",
     "kuromoji": "^0.1.2",
     "natural": "^8.1.1",
     "node-fetch": "^3.3.2",
-    "openai": "^6.21.0",
-    "pg": "^8.18.0",
+    "openai": "^7.5.0",
+    "pg": "^8.23.0",
     "prom-client": "^15.1.3",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0"
   },
   "devDependencies": {
-    "eslint": "^9.0.0"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.1"
   },
   "overrides": {
     "fast-uri": "^3.1.5",
-    "brace-expansion": "^1.1.18",
     "@hono/node-server": "^2.0.5",
     "mongoose": "^9.9.1",
     "tar": "^7.5.22",
     "body-parser": "^2.3.0",
     "sharp": "^0.35.3",
-    "ip-address": "^10.3.1"
-  }
+    "ip-address": "^10.3.1",
+    "adm-zip": "^0.6.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JinHo-von-Choi/anchormind.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JinHo-von-Choi/anchormind/issues"
+  },
+  "homepage": "https://github.com/JinHo-von-Choi/anchormind#readme"
 }

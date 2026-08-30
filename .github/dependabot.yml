@@ -1,0 +1,34 @@
+# 의존성 갱신 제안 설정
+#
+# 작성자: 최진호
+# 작성일: 2026-08-29
+
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    # 런타임과 개발 의존성을 나누되, 묶음에는 패치와 마이너만 담는다.
+    #
+    # 메이저를 함께 묶으면 한 건이 막힐 때 나머지도 함께 멈춘다. 실제로 런타임
+    # 묶음에 메이저 넷이 섞여 있었고 그중 하나가 취약한 전이 의존성을 끌어와
+    # 일곱 건 전부가 병합 불가가 됐다. 메이저는 개별 PR로 받아 하나씩 판단한다.
+    groups:
+      runtime:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      development:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3

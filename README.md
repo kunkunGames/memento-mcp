@@ -62,6 +62,8 @@ AI에게 무언가를 기억시키고, 다음 세션에서 꺼내 보는 흐름�
 
 필수: Node.js 20+, PostgreSQL (pgvector 확장)
 
+> 서버 실행은 Node.js 20 이상에서 동작한다. 다만 개발용 단위시험은 `--experimental-test-module-mocks`를 쓰며 이 기능은 Node.js 24에서만 안정적이다. 시험을 돌리려면 Node.js 24를 쓴다.
+
 ```bash
 cp .env.example.minimal .env
 # .env 값을 편집한 뒤 셸에 반영
@@ -344,7 +346,7 @@ docs/
 
 - L1 Redis 캐시는 API 키 기반 격리만 지원한다. multi-agent 환경에서 에이전트 간 격리는 L2/L3에서 적용된다.
 - 자동 품질 평가는 decision, preference, relation 유형만 대상이다. fact, procedure, error는 평가 큐에서 제외된다.
-- MEMENTO_ACCESS_KEY를 설정하지 않으면 인증이 비활성화된다. 외부 노출 환경에서는 반드시 설정할 것.
+- MEMENTO_ACCESS_KEY를 설정하지 않으면 서버가 기동하지 않는다. 인증 없이 운용하려면 MEMENTO_AUTH_DISABLED=true를 함께 명시해야 한다.
 - ALLOWED_ORIGINS — 브라우저 기반 MCP 클라이언트 화이트리스트. 미설정 시 모든 Origin을 허용한다.
   외부 노출 환경에서는 `MCP_STRICT_ORIGIN=true`와 함께 실제 사용하는 브라우저 Origin만 등록할 것.
   데스크탑/CLI/IDE 확장(Claude Code, Cursor, Windsurf, Continue, Cline, Zed, gemini CLI 등)은

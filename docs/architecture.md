@@ -42,7 +42,7 @@ server.js  (HTTP 서버)
             │   ├── ContextBuilder.js     context() 로직 전담. `build()` 내부에서 `#loadCoreMemory` / `#loadWorkingMemory` / `#loadAnchorMemory` / `#loadLearningFragments` / `#buildInjectionLines` / `#buildStructuredResponse` 6개 비공개 메서드로 분해
             │   ├── GraphNeighborSearch.js L2.5 그래프 이웃 검색 (fragment_links 1-hop 양방향 UNION, tanh 포화 스코어링 + 관계 유형별 부스트)
             │   ├── HistoryReconstructor.js case_id/entity 기반 서사 재구성 (ordered_timeline, causal_chains, unresolved_branches)
-            │   ├── Reranker.js           Cross-Encoder 재정렬 (RERANKER_URL 설정 시 외부 HTTP, 미설정 시 ONNX in-process; RERANKER_MODEL로 minilm/bge-m3 선택)
+            │   ├── Reranker.js           Cross-Encoder 재정렬 (기본 비활성; MEMENTO_RERANKER_ENABLED 또는 RERANKER_URL로 활성)
             │   ├── CaseRecall.js         caseMode: true 경로 전담. case_id별 (goal, events[], outcome) 트리플 반환
             │   ├── LinkedFragmentLoader.js 연결 파편 일괄 로드 (1-hop 이웃 배치 조회)
             │   ├── RecallSuggestionEngine.js recall 결과 분석 후 _suggestion 메타 생성
@@ -101,7 +101,7 @@ server.js  (HTTP 서버)
 ```
 lib/
 ├── config.js          환경변수를 상수로 노출. AUTH_DISABLED(MEMENTO_AUTH_DISABLED), OAUTH_TOKEN_TTL_SECONDS, OAUTH_REFRESH_TTL_SECONDS, ENABLE_OPENAPI, SSE_HEARTBEAT_INTERVAL_MS 포함
-├── auth.js            Bearer 토큰 검증. `validateAuthentication(req, msg)` — 실제 진입점. `MEMENTO_ACCESS_KEY` 미설정 시 모든 요청을 master 권한으로 통과시킨다. `resolveAuthConfig(accessKey, authDisabled)` — 인증 설정 해석 순수 함수. `buildAuthDecision(accessKey, authDisabled, bearerToken)` — 테스트 대상 순수 함수 (OAuth/DB API 키 검증 제외)
+├── auth.js            Bearer 토큰 검증. `validateAuthentication(req, msg)`: 실제 진입점. `MEMENTO_ACCESS_KEY` 미설정 시 `buildAuthDecision`에 위임하며, `MEMENTO_AUTH_DISABLED=true`가 없으면 거부한다(서버는 기동 단계에서 이미 멈춘다). `resolveAuthConfig(accessKey, authDisabled)`: 인증 설정 해석 순수 함수. `buildAuthDecision(accessKey, authDisabled, bearerToken)`: 테스트 대상 순수 함수 (OAuth/DB API 키 검증 제외)
 ├── oauth.js           OAuth 2.0 PKCE 인가/토큰 처리
 ├── sessions.js        Streamable/Legacy SSE 세션 생명주기
 ├── redis.js           ioredis 클라이언트 (Sentinel 지원)

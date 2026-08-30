@@ -97,7 +97,22 @@ CUDA 11이 설치된 시스템에서 `@huggingface/transformers`의 의존성인
 ## PostgreSQL 스키마 적용
 
 ```bash
-# 최초 설치
+npm run migrate
+```
+
+빈 데이터베이스에서도 이 한 줄이면 된다. 러너가 기반 스키마 부재를 감지해
+`lib/memory/memory-schema.sql`을 먼저 적용한 뒤 마이그레이션을 순서대로 실행한다.
+
+선행 조건은 `vector` 확장뿐이며, 이는 슈퍼유저 권한을 요구한다.
+
+```bash
+psql -U postgres -d $POSTGRES_DB -c "CREATE EXTENSION IF NOT EXISTS vector"
+```
+
+기반 스키마를 직접 적용하고 싶으면 아래를 쓸 수 있다. `npm run migrate`가
+같은 파일을 멱등하게 적용하므로 필수는 아니다.
+
+```bash
 psql -U $POSTGRES_USER -d $POSTGRES_DB -f lib/memory/memory-schema.sql
 ```
 
@@ -277,7 +292,7 @@ migration-034-v2.16.0-bundle 인덱스 적용 확인:
 
 > **migration-009, 010**: co_retrieved 링크 타입이 없으면 Hebbian 링킹이 DB 제약 에러로 조용히 실패하고, ema_activation 컬럼이 없으면 incrementAccess SQL 오류가 발생한다. 반드시 실행 후 서버를 시작해야 한다.
 
-> **MEMENTO_ACCESS_KEY**: 설정하지 않으면 서버가 시작 시 경고를 출력하며 인증 없이 동작한다. 개발/테스트 환경에서 의도적으로 인증을 비활성화하려면 `.env`에 `MEMENTO_AUTH_DISABLED=true`를 추가한다.
+> **MEMENTO_ACCESS_KEY**: 설정하지 않으면 서버가 기동하지 않고 종료 코드 78로 멈춘다. 키 없이 뜨는 서버는 모든 도구와 master 범위를 무인증으로 열기 때문이다. 개발이나 시험 목적으로 인증 없이 운용하려면 `.env`에 `MEMENTO_AUTH_DISABLED=true`를 명시해야 한다.
 
 ```bash
 # 기본 임베딩(1536차원) 사용 시: migration-007 불필요
@@ -318,7 +333,8 @@ COMPRESS_AGE_DAYS             - 압축 대상 비활성 일수 (기본: 30)
 COMPRESS_MIN_GROUP            - 압축 그룹 최소 크기 (기본: 3)
 CONSOLIDATE_INTERVAL_MS       - consolidate 주기 (기본: 21600000 = 6시간)
 ALLOWED_ORIGINS               - CORS 허용 Origin 목록 (쉼표 구분)
-RERANKER_MODEL                - in-process ONNX 모델 선택: minilm (기본, 영어 전용) 또는 bge-m3 (다국어, 비영어권 권장)
+MEMENTO_RERANKER_ENABLED      - in-process 리랭커 활성화 (기본: false). 기본 모델이 영어 전용이라 한국어에서는 끄는 편이 정확도·지연 모두 낫다
+RERANKER_MODEL                - in-process ONNX 모델 선택: minilm (기본, 영어 전용) 또는 bge-m3 (다국어, CPU에서 매우 느림)
 LLM_PRIMARY                   - 주 LLM provider (기본: gemini-cli). gemini-cli, agy-cli, codex-cli, opencode-cli, anthropic 등
 LLM_FALLBACKS                 - JSON 배열. 각 원소: {"provider":"anthropic","apiKey":"...","model":"claude-opus-4-6"}
 MEMENTO_REMEMBER_ATOMIC       - true로 설정 시 remember() quota 체크+INSERT를 단일 트랜잭션으로 원자화 (기본: false)
